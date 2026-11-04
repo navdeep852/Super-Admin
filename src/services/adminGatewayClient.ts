@@ -142,6 +142,66 @@ class AdminGatewayClient {
   }
 
   // ---------------------------------------------------------------------------
+  // Password Management & Recovery API
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Change password for the currently authenticated administrator.
+   */
+  async changePassword(currentPassword: string, newPassword: string): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`${GATEWAY_BASE_URL}/api/v1/auth/password/change`, {
+      method: 'POST',
+      headers: this.getHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || 'Failed to update administrator password');
+    }
+    return json;
+  }
+
+  /**
+   * Request password reset instructions / recovery link for an administrator.
+   */
+  async requestPasswordReset(email: string): Promise<{ success: boolean; message: string; recoveryLink?: string }> {
+    const res = await fetch(`${GATEWAY_BASE_URL}/api/v1/auth/password/reset-request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || 'Failed to request password reset');
+    }
+    return json;
+  }
+
+  /**
+   * Complete password reset using a recovery access token or JWT.
+   */
+  async confirmPasswordReset(newPassword: string, token?: string): Promise<{ success: boolean; message: string }> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const res = await fetch(`${GATEWAY_BASE_URL}/api/v1/auth/password/reset-confirm`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ new_password: newPassword, access_token: token })
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || 'Failed to reset password');
+    }
+    return json;
+  }
+
+  // ---------------------------------------------------------------------------
   // Health API
   // ---------------------------------------------------------------------------
 
@@ -170,7 +230,7 @@ class AdminGatewayClient {
       return this.isOnlineCache;
     }
     const health = await this.checkHealth();
-    return health.status === 'operational' || health.status === 'degraded';
+    return health.status === 'operational' || health.status === 'degraded' || (health as any).ok === true || (health as any).status === 'ok';
   }
 
   // ---------------------------------------------------------------------------

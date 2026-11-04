@@ -12,11 +12,13 @@ import {
   X,
   ExternalLink,
   LogOut,
+  KeyRound,
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useAdminAuth } from '../../context/AdminAuthContext';
 import { AdminRole, AdminUser } from '../../types';
 import { NavigationModule } from './AdminSidebar';
+import { ChangePasswordModal } from '../auth/ChangePasswordModal';
 
 interface AdminHeaderProps {
   title: string;
@@ -47,6 +49,7 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
   const { theme, toggleTheme } = useTheme();
   const { currentAdmin, logout, sessionAal, hasPermission } = useAdminAuth();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -260,6 +263,13 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
             </div>
           </div>
           <button
+            onClick={() => setChangePasswordOpen(true)}
+            title="Change Administrator Password"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-500 hover:bg-emerald-500/10 transition-colors ml-1"
+          >
+            <KeyRound className="w-4 h-4" />
+          </button>
+          <button
             onClick={logout}
             title="Sign out of administrative session"
             className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 transition-colors ml-1"
@@ -268,6 +278,11 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
           </button>
         </div>
       </div>
+
+      <ChangePasswordModal
+        isOpen={changePasswordOpen}
+        onClose={() => setChangePasswordOpen(false)}
+      />
     </header>
   );
 };

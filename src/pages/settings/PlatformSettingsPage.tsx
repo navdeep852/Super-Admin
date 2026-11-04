@@ -6,21 +6,25 @@ import {
   Save,
   CheckCircle2,
   Zap,
+  KeyRound,
+  Lock,
 } from 'lucide-react';
 import { PageContainer } from '../../components/layout/PageContainer';
 import { Tabs } from '../../components/common/Tabs';
 import { mockPricingPlans, mockPlatformConfig, PricingPlanConfig } from '../../data/mockSettings';
 import { useAdminAuth } from '../../context/AdminAuthContext';
 import { PermissionDenied } from '../../components/common/PermissionDenied';
+import { ChangePasswordModal } from '../../components/auth/ChangePasswordModal';
 
 export const PlatformSettingsPage: React.FC = () => {
-  const { hasPermission } = useAdminAuth();
+  const { hasPermission, currentAdmin } = useAdminAuth();
   const [activeTab, setActiveTab] = useState<'plans' | 'tax' | 'security' | 'gateway'>('plans');
   const [plans, setPlans] = useState<PricingPlanConfig[]>(mockPricingPlans);
   const [tax, setTax] = useState(mockPlatformConfig.taxation);
   const [security, setSecurity] = useState(mockPlatformConfig.securityPolicies);
   const [gateway, setGateway] = useState(mockPlatformConfig.paymentSettings);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
 
   // If role doesn't have settings permission (e.g. support_agent or billing_admin)
   if (!hasPermission('settings')) {
@@ -264,6 +268,29 @@ export const PlatformSettingsPage: React.FC = () => {
                 className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 font-mono"
               />
             </div>
+
+            {/* Administrator Password & Credentials Section */}
+            <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800">
+              <div className="flex items-center justify-between p-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5">
+                <div className="space-y-1">
+                  <div className="font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                    <KeyRound className="w-4 h-4 text-emerald-500" />
+                    Administrator Credentials & Password
+                  </div>
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Active Account: <span className="font-mono text-emerald-600 dark:text-emerald-400 font-medium">{currentAdmin?.email || 'navdeep@vistaarone.com'}</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setChangePasswordOpen(true)}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-1.5 transition-colors shadow-xs shrink-0"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  Change Password
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -316,6 +343,11 @@ export const PlatformSettingsPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      <ChangePasswordModal
+        isOpen={changePasswordOpen}
+        onClose={() => setChangePasswordOpen(false)}
+      />
     </PageContainer>
   );
 };

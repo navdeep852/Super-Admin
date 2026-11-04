@@ -22,7 +22,7 @@ export const MockBanner: React.FC = () => {
 
   if (dismissed) return null;
 
-  const isLive = health?.status === 'operational' || health?.status === 'degraded';
+  const isLive = health?.status === 'operational' || health?.status === 'degraded' || (health as any)?.ok === true || (health as any)?.status === 'ok';
 
   if (isLive) {
     return (

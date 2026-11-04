@@ -435,7 +435,7 @@ export const server = http.createServer(async (req, res) => {
   // Health Check Endpoints
   if ((url.pathname === '/health' || url.pathname === '/api/v1/health') && req.method === 'GET') {
     const payload = {
-      status: 'ok',
+      status: 'operational', ok: true,
       service: 'vistaar-super-admin-gateway-bff',
       environment: nodeEnv,
       stagingProjectRef: stagingProjectRef,
@@ -642,6 +642,210 @@ export const server = http.createServer(async (req, res) => {
           mfaEnrolled: admin.mfa_enrolled,
           sessionAal
         }
+      }));
+    } catch (err) {
+      sendSafeError(res, err);
+    }
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Route: In-App Password Change for Authenticated Administrator
+  // ---------------------------------------------------------------------------
+  if (url.pathname === '/api/v1/auth/password/change' && req.method === 'POST') {
+    try {
+      const { admin, user } = await authorizeAdmin(req, ['super_admin', 'billing_admin', 'support_agent'], 'aal1');
+      const rawBody = await readBoundedBody(req);
+      const { current_password, new_password } = JSON.parse(rawBody || '{}');
+
+      if (!new_password || new_password.length < 8) {
+        const err = new Error('New password must be at least 8 characters long');
+        err.statusCode = 400;
+        err.code = 'INVALID_PASSWORD_LENGTH';
+        throw err;
+      }
+
+      // If current password provided, verify it first
+      if (current_password) {
+        const authClient = createClient(gatewayUrl, serviceRoleKey, {
+          auth: { persistSession: false, autoRefreshToken: false }
+        });
+        const { error: verifyErr } = await authClient.auth.signInWithPassword({
+          email: admin.email,
+          password: current_password
+        });
+        if (verifyErr) {
+          const err = new Error('Current password is incorrect');
+          err.statusCode = 401;
+          err.code = 'INVALID_CURRENT_PASSWORD';
+          throw err;
+        }
+      }
+
+      // Update password in Supabase Auth via Admin API
+      const { error: updateErr } = await supabase.auth.admin.updateUserById(admin.id, {
+        password: new_password
+      });
+
+      if (updateErr) throw updateErr;
+
+      // Log password change in platform_audit_logs
+      await supabase.from('platform_audit_logs').insert({
+        admin_id: admin.id,
+        admin_email: admin.email,
+        admin_role: admin.role,
+        action: 'PASSWORD_CHANGE',
+        target_user_id: admin.id,
+        details: { message: 'Administrator password changed securely via portal' },
+        client_ip: req.socket.remoteAddress || '127.0.0.1'
+      });
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        message: 'Password updated successfully'
+      }));
+    } catch (err) {
+      sendSafeError(res, err);
+    }
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Route: Complete Password Reset with Recovery Token / Session
+  // ---------------------------------------------------------------------------
+  if (url.pathname === '/api/v1/auth/password/reset-confirm' && req.method === 'POST') {
+    try {
+      const rawBody = await readBoundedBody(req);
+      const { token, access_token, new_password } = JSON.parse(rawBody || '{}');
+
+      if (!new_password || new_password.length < 8) {
+        const err = new Error('New password must be at least 8 characters long');
+        err.statusCode = 400;
+        err.code = 'INVALID_PASSWORD_LENGTH';
+        throw err;
+      }
+
+      // Extract bearer token from Authorization header or body
+      let recoveryJwt = access_token || token;
+      if (!recoveryJwt && req.headers['authorization']) {
+        const authHeader = req.headers['authorization'];
+        if (authHeader.startsWith('Bearer ')) {
+          recoveryJwt = authHeader.slice(7);
+        }
+      }
+
+      if (!recoveryJwt) {
+        const err = new Error('Recovery access token is required');
+        err.statusCode = 401;
+        err.code = 'MISSING_RECOVERY_TOKEN';
+        throw err;
+      }
+
+      // Validate recovery token against Supabase Auth
+      const { data: userData, error: userErr } = await supabase.auth.getUser(recoveryJwt);
+      if (userErr || !userData?.user) {
+        const err = new Error('Invalid or expired password reset token');
+        err.statusCode = 401;
+        err.code = 'INVALID_RESET_TOKEN';
+        throw err;
+      }
+
+      const userId = userData.user.id;
+      const userEmail = userData.user.email;
+
+      // Verify user is in platform_admins and active
+      const { data: adminRecord, error: adminErr } = await supabase
+        .from('platform_admins')
+        .select('id, email, role, is_active')
+        .eq('id', userId)
+        .single();
+
+      if (adminErr || !adminRecord || !adminRecord.is_active) {
+        const err = new Error('Account is not an active platform administrator');
+        err.statusCode = 403;
+        err.code = 'ADMIN_NOT_AUTHORIZED';
+        throw err;
+      }
+
+      // Update password via admin API
+      const { error: updateErr } = await supabase.auth.admin.updateUserById(userId, {
+        password: new_password
+      });
+
+      if (updateErr) throw updateErr;
+
+      // Audit log
+      await supabase.from('platform_audit_logs').insert({
+        admin_id: userId,
+        admin_email: userEmail,
+        admin_role: adminRecord.role,
+        action: 'PASSWORD_RESET',
+        target_user_id: userId,
+        details: { message: 'Administrator password reset successfully completed via recovery token' },
+        client_ip: req.socket.remoteAddress || '127.0.0.1'
+      });
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        message: 'Password has been reset successfully. You may now log in.'
+      }));
+    } catch (err) {
+      sendSafeError(res, err);
+    }
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Route: Password Reset Request (Forgot Password)
+  // ---------------------------------------------------------------------------
+  if (url.pathname === '/api/v1/auth/password/reset-request' && req.method === 'POST') {
+    try {
+      const clientIp = req.socket.remoteAddress || 'unknown';
+      if (!checkRateLimit(`reset_pwd_ip:${clientIp}`, 5)) {
+        const err = new Error('Rate limit exceeded for password reset requests. Try again later.');
+        err.statusCode = 429;
+        err.code = 'RATE_LIMIT_EXCEEDED';
+        throw err;
+      }
+
+      const rawBody = await readBoundedBody(req);
+      const { email } = JSON.parse(rawBody || '{}');
+
+      if (!email) {
+        const err = new Error('Email is required');
+        err.statusCode = 400;
+        err.code = 'VALIDATION_ERROR';
+        throw err;
+      }
+
+      const normalizedEmail = email.trim().toLowerCase();
+
+      // Check if user is in platform_admins
+      const { data: adminRecord } = await supabase
+        .from('platform_admins')
+        .select('id, email, is_active')
+        .eq('email', normalizedEmail)
+        .single();
+
+      let recoveryLink = null;
+      if (adminRecord && adminRecord.is_active) {
+        const { data: linkData } = await supabase.auth.admin.generateLink({
+          type: 'recovery',
+          email: normalizedEmail,
+          options: {
+            redirectTo: 'http://localhost:3001/'
+          }
+        });
+        recoveryLink = linkData?.properties?.action_link || null;
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        message: 'If the provided email belongs to an active administrator, password reset instructions have been generated.',
+        recoveryLink: process.env.NODE_ENV === 'staging' ? recoveryLink : undefined
       }));
     } catch (err) {
       sendSafeError(res, err);

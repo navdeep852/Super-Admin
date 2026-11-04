@@ -484,7 +484,10 @@ export const server = http.createServer(async (req, res) => {
         throw err;
       }
 
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      const authClient = createClient(gatewayUrl, serviceRoleKey, {
+        auth: { persistSession: false, autoRefreshToken: false }
+      });
+      const { data: authData, error: authError } = await authClient.auth.signInWithPassword({
         email: email.trim().toLowerCase(),
         password
       });

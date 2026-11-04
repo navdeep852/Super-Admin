@@ -5,8 +5,8 @@ import { useAdminAuth } from '../../context/AdminAuthContext';
 export const AdminLoginPage: React.FC = () => {
   const { login, verifyMfa, isMfaRequired } = useAdminAuth();
 
-  const [email, setEmail] = useState('synthetic.admin@staging.vistaar.internal');
-  const [password, setPassword] = useState('StagingAdminPassword2026!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [totpCode, setTotpCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);

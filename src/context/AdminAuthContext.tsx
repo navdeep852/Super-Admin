@@ -108,6 +108,8 @@ export interface AdminAuthContextType {
   login: (email: string, password: string) => Promise<{ success: boolean; mfaRequired?: boolean; error?: string }>;
   verifyMfa: (code: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
+  updateCurrentAdmin: (updates: Partial<AdminUser>) => void;
+  refreshCurrentAdmin: () => Promise<void>;
 }
 
 const AdminAuthContext = createContext<AdminAuthContextType | undefined>(undefined);
@@ -139,6 +141,8 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             role: me.role as PlatformRole,
             isActive: me.isActive ?? true,
             mfaEnabled: me.mfaEnrolled ?? false,
+            avatarUrl: me.avatarUrl ?? null,
+            phoneNumber: me.phoneNumber ?? null,
             lastLoginAt: new Date().toISOString(),
             createdAt: new Date().toISOString()
           };
@@ -180,6 +184,8 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         role: adminData.role as PlatformRole,
         isActive: adminData.isActive ?? true,
         mfaEnabled: adminData.mfaEnrolled ?? false,
+        avatarUrl: adminData.avatarUrl ?? null,
+        phoneNumber: adminData.phoneNumber ?? null,
         lastLoginAt: new Date().toISOString(),
         createdAt: new Date().toISOString()
       };
@@ -243,6 +249,33 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const canAccessModule = (moduleName: string): boolean => hasPermission(moduleName);
   const canPerformAction = (actionName: string): boolean => hasPermission(actionName);
 
+  const updateCurrentAdmin = (updates: Partial<AdminUser>) => {
+    setCurrentAdmin(prev => (prev ? { ...prev, ...updates } : null));
+  };
+
+  const refreshCurrentAdmin = async () => {
+    try {
+      const me = await adminGatewayClient.getMe();
+      if (me) {
+        setCurrentAdmin({
+          id: me.id,
+          email: me.email,
+          fullName: me.fullName || 'Platform Administrator',
+          role: me.role as PlatformRole,
+          isActive: me.isActive ?? true,
+          mfaEnabled: me.mfaEnrolled ?? false,
+          avatarUrl: me.avatarUrl ?? null,
+          phoneNumber: me.phoneNumber ?? null,
+          lastLoginAt: new Date().toISOString(),
+          createdAt: new Date().toISOString()
+        });
+        setSessionAal(me.sessionAal || 'aal1');
+      }
+    } catch (err) {
+      console.error('Failed to refresh admin profile:', err);
+    }
+  };
+
   return (
     <AdminAuthContext.Provider
       value={{
@@ -261,6 +294,8 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         login,
         verifyMfa,
         logout,
+        updateCurrentAdmin,
+        refreshCurrentAdmin,
       }}
     >
       {children}

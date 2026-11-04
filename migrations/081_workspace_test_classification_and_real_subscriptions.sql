@@ -77,3 +77,4 @@ SELECT
 FROM public.workspace_subscriptions ws
 JOIN public.workspaces w ON ws.workspace_id = w.id
 LEFT JOIN public.subscription_plans sp ON ws.plan_id = sp.id;
+

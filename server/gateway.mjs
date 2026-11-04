@@ -129,15 +129,15 @@ function checkRateLimit(key, maxRequests = RATE_LIMIT_MAX_REQUESTS) {
   return true;
 }
 
-function readBoundedBody(req) {
+function readBoundedBody(req, limit = MAX_BODY_SIZE) {
   return new Promise((resolve, reject) => {
     let body = '';
     let size = 0;
     req.on('data', chunk => {
       size += chunk.length;
-      if (size > MAX_BODY_SIZE) {
+      if (size > limit) {
         req.destroy();
-        const err = new Error('PAYLOAD_TOO_LARGE: Request body exceeds maximum allowed 16KB');
+        const err = new Error(`PAYLOAD_TOO_LARGE: Request body exceeds maximum allowed ${Math.round(limit / 1024)}KB`);
         err.statusCode = 413;
         err.code = 'PAYLOAD_TOO_LARGE';
         reject(err);
@@ -265,7 +265,7 @@ async function authorizeAdmin(req, allowedRoles = ['super_admin'], requiredAal =
 
   const { data: actor, error } = await supabase
     .from('platform_admins')
-    .select('id, email, full_name, role, is_active, mfa_enrolled')
+    .select('id, email, full_name, role, is_active, mfa_enrolled, avatar_url, phone_number')
     .eq('id', actorId)
     .single();
 
@@ -306,7 +306,7 @@ async function authorizeAdmin(req, allowedRoles = ['super_admin'], requiredAal =
 async function verifySuperAdminActor(actorId, sessionAal) {
   const { data: actor, error } = await supabase
     .from('platform_admins')
-    .select('id, email, full_name, role, is_active, mfa_enrolled')
+    .select('id, email, full_name, role, is_active, mfa_enrolled, avatar_url, phone_number')
     .eq('id', actorId)
     .single();
 
@@ -393,6 +393,75 @@ async function computeDynamicRevenueTrends() {
   }));
 }
 
+// Validates image buffer, checks maximum 5MB size limit, and verifies magic bytes
+function validateAndExtractImageBuffer(rawPayload) {
+  let buffer;
+
+  if (Buffer.isBuffer(rawPayload)) {
+    buffer = rawPayload;
+  } else if (typeof rawPayload === 'string') {
+    const trimmed = rawPayload.trim();
+    // Check if Data URL format: data:image/png;base64,...
+    const match = trimmed.match(/^data:image\/(png|jpe?g|webp);base64,(.+)$/is);
+    if (match) {
+      buffer = Buffer.from(match[2], 'base64');
+    } else {
+      buffer = Buffer.from(trimmed, 'base64');
+    }
+  } else if (rawPayload && typeof rawPayload === 'object') {
+    const base64Str = rawPayload.image || rawPayload.image_base64 || rawPayload.data || rawPayload.file;
+    if (typeof base64Str === 'string') {
+      return validateAndExtractImageBuffer(base64Str);
+    }
+  }
+
+  if (!buffer || buffer.length === 0) {
+    const err = new Error('No valid image data provided');
+    err.statusCode = 400;
+    err.code = 'INVALID_IMAGE_PAYLOAD';
+    throw err;
+  }
+
+  // 5 MB strict limit
+  const MAX_SIZE = 5 * 1024 * 1024;
+  if (buffer.length > MAX_SIZE) {
+    const err = new Error(`Image file size (${(buffer.length / (1024 * 1024)).toFixed(2)} MB) exceeds maximum allowed limit of 5.00 MB`);
+    err.statusCode = 413;
+    err.code = 'FILE_TOO_LARGE';
+    throw err;
+  }
+
+  // Inspect binary magic bytes
+  let detectedMime = null;
+  let ext = 'png';
+
+  // PNG magic bytes: 89 50 4E 47 0D 0A 1A 0A
+  if (buffer.length >= 8 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47 &&
+      buffer[4] === 0x0D && buffer[5] === 0x0A && buffer[6] === 0x1A && buffer[7] === 0x0A) {
+    detectedMime = 'image/png';
+    ext = 'png';
+  }
+  // JPEG magic bytes: FF D8 FF
+  else if (buffer.length >= 3 && buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) {
+    detectedMime = 'image/jpeg';
+    ext = 'jpg';
+  }
+  // WebP magic bytes: RIFF .... WEBP
+  else if (buffer.length >= 12 && buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP') {
+    detectedMime = 'image/webp';
+    ext = 'webp';
+  }
+
+  if (!detectedMime) {
+    const err = new Error('Invalid image format. Only genuine PNG, JPEG, and WebP images are permitted');
+    err.statusCode = 400;
+    err.code = 'UNSUPPORTED_MEDIA_TYPE';
+    throw err;
+  }
+
+  return { buffer, mimeType: detectedMime, extension: ext, sizeBytes: buffer.length };
+}
+
 function sendSafeError(res, err) {
   console.error('[Gateway Handler Error]:', err);
   let statusCode = err.statusCode || 500;
@@ -433,6 +502,7 @@ function sendSafeError(res, err) {
   res.end(JSON.stringify({
     success: false,
     error: errorCode,
+    code: errorCode,
     message: message
   }));
 }
@@ -556,6 +626,8 @@ export const server = http.createServer(async (req, res) => {
           role: admin.role,
           isActive: admin.is_active,
           mfaEnrolled: admin.mfa_enrolled,
+          avatarUrl: admin.avatar_url || null,
+          phoneNumber: admin.phone_number || null,
           sessionAal
         },
         mfaRequired
@@ -649,7 +721,7 @@ export const server = http.createServer(async (req, res) => {
   // ---------------------------------------------------------------------------
   if (url.pathname === '/api/v1/admins/me' && req.method === 'GET') {
     try {
-      const { admin, sessionAal } = await authorizeAdmin(req, ['super_admin', 'billing_admin', 'support_agent'], 'aal1');
+      const { admin, sessionAal } = await authorizeAdmin(req, ['super_admin', 'billing_admin', 'support_agent', 'compliance_admin', 'platform_auditor'], 'aal1');
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         success: true,
@@ -660,7 +732,240 @@ export const server = http.createServer(async (req, res) => {
           role: admin.role,
           isActive: admin.is_active,
           mfaEnrolled: admin.mfa_enrolled,
+          avatarUrl: admin.avatar_url || null,
+          phoneNumber: admin.phone_number || null,
           sessionAal
+        }
+      }));
+    } catch (err) {
+      sendSafeError(res, err);
+    }
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Route: Upload / Change Profile Photo for Authenticated Administrator
+  // ---------------------------------------------------------------------------
+  if (url.pathname === '/api/v1/admins/me/avatar' && req.method === 'POST') {
+    try {
+      const { admin } = await authorizeAdmin(req, ['super_admin', 'billing_admin', 'support_agent', 'compliance_admin', 'platform_auditor'], 'aal1');
+      // Read bounded body up to 8 MB to accommodate base64 overhead of 5 MB images
+      const rawBody = await readBoundedBody(req, 8 * 1024 * 1024);
+      const parsedBody = JSON.parse(rawBody || '{}');
+
+      const { buffer, mimeType, extension, sizeBytes } = validateAndExtractImageBuffer(parsedBody);
+
+      const storagePath = `platform-admins/${admin.id}/avatar.${extension}`;
+
+      const { error: uploadErr } = await supabase.storage
+        .from('admin-profile-photos')
+        .upload(storagePath, buffer, {
+          contentType: mimeType,
+          upsert: true
+        });
+
+      if (uploadErr) {
+        throw new Error(`Storage upload failed: ${uploadErr.message}`);
+      }
+
+      const { data: pubData } = supabase.storage
+        .from('admin-profile-photos')
+        .getPublicUrl(storagePath);
+
+      const publicUrl = `${pubData.publicUrl}?v=${Date.now()}`;
+
+      // Update administrator record in database
+      const { data: updatedAdmin, error: updateErr } = await supabase
+        .from('platform_admins')
+        .update({
+          avatar_url: publicUrl,
+          avatar_updated_at: new Date().toISOString()
+        })
+        .eq('id', admin.id)
+        .select('id, email, full_name, role, is_active, mfa_enrolled, avatar_url, phone_number')
+        .single();
+
+      if (updateErr) throw updateErr;
+
+      // Audit log entry
+      await supabase.from('platform_audit_logs').insert({
+        admin_id: admin.id,
+        admin_email: admin.email,
+        admin_role: admin.role,
+        action: 'ADMIN_AVATAR_UPLOAD',
+        target_user_id: admin.id,
+        details: {
+          storage_path: storagePath,
+          mime_type: mimeType,
+          size_bytes: sizeBytes
+        },
+        client_ip: req.socket.remoteAddress || '127.0.0.1'
+      });
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        message: 'Profile photo updated successfully',
+        avatarUrl: publicUrl,
+        admin: {
+          id: updatedAdmin.id,
+          email: updatedAdmin.email,
+          fullName: updatedAdmin.full_name,
+          role: updatedAdmin.role,
+          isActive: updatedAdmin.is_active,
+          mfaEnrolled: updatedAdmin.mfa_enrolled,
+          avatarUrl: updatedAdmin.avatar_url,
+          phoneNumber: updatedAdmin.phone_number
+        }
+      }));
+    } catch (err) {
+      sendSafeError(res, err);
+    }
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Route: Remove Profile Photo for Authenticated Administrator
+  // ---------------------------------------------------------------------------
+  if (url.pathname === '/api/v1/admins/me/avatar' && req.method === 'DELETE') {
+    try {
+      const { admin } = await authorizeAdmin(req, ['super_admin', 'billing_admin', 'support_agent', 'compliance_admin', 'platform_auditor'], 'aal1');
+
+      const pathsToRemove = [
+        `platform-admins/${admin.id}/avatar.webp`,
+        `platform-admins/${admin.id}/avatar.png`,
+        `platform-admins/${admin.id}/avatar.jpg`,
+        `platform-admins/${admin.id}/avatar.jpeg`
+      ];
+
+      await supabase.storage.from('admin-profile-photos').remove(pathsToRemove);
+
+      const { data: updatedAdmin, error: updateErr } = await supabase
+        .from('platform_admins')
+        .update({
+          avatar_url: null,
+          avatar_updated_at: new Date().toISOString()
+        })
+        .eq('id', admin.id)
+        .select('id, email, full_name, role, is_active, mfa_enrolled, avatar_url, phone_number')
+        .single();
+
+      if (updateErr) throw updateErr;
+
+      // Audit log entry
+      await supabase.from('platform_audit_logs').insert({
+        admin_id: admin.id,
+        admin_email: admin.email,
+        admin_role: admin.role,
+        action: 'ADMIN_AVATAR_REMOVED',
+        target_user_id: admin.id,
+        details: { message: 'Profile photo removed' },
+        client_ip: req.socket.remoteAddress || '127.0.0.1'
+      });
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        message: 'Profile photo removed successfully',
+        avatarUrl: null,
+        admin: {
+          id: updatedAdmin.id,
+          email: updatedAdmin.email,
+          fullName: updatedAdmin.full_name,
+          role: updatedAdmin.role,
+          isActive: updatedAdmin.is_active,
+          mfaEnrolled: updatedAdmin.mfa_enrolled,
+          avatarUrl: null,
+          phoneNumber: updatedAdmin.phone_number
+        }
+      }));
+    } catch (err) {
+      sendSafeError(res, err);
+    }
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Route: Update Profile Metadata (Name, Phone) for Authenticated Administrator
+  // ---------------------------------------------------------------------------
+  if (url.pathname === '/api/v1/admins/me/profile' && (req.method === 'PUT' || req.method === 'PATCH')) {
+    try {
+      const { admin } = await authorizeAdmin(req, ['super_admin', 'billing_admin', 'support_agent', 'compliance_admin', 'platform_auditor'], 'aal1');
+      const rawBody = await readBoundedBody(req);
+      const body = JSON.parse(rawBody || '{}');
+
+      // Security check: Never permit self-editing of role, account status, email, or system IDs
+      if ('role' in body || 'is_active' in body || 'id' in body || 'email' in body || 'mfa_enrolled' in body) {
+        const err = new Error('Modification of role, account status, email, or system identifiers is strictly forbidden');
+        err.statusCode = 403;
+        err.code = 'FORBIDDEN_FIELD_MODIFICATION';
+        throw err;
+      }
+
+      const updates = {};
+      if (typeof body.fullName === 'string' || typeof body.full_name === 'string') {
+        const name = (body.fullName || body.full_name).trim();
+        if (name.length < 2 || name.length > 100) {
+          const err = new Error('Full name must be between 2 and 100 characters');
+          err.statusCode = 400;
+          err.code = 'INVALID_NAME_LENGTH';
+          throw err;
+        }
+        updates.full_name = name;
+      }
+
+      if (typeof body.phoneNumber === 'string' || typeof body.phone_number === 'string') {
+        const phone = (body.phoneNumber || body.phone_number).trim();
+        if (phone.length > 25) {
+          const err = new Error('Phone number must not exceed 25 characters');
+          err.statusCode = 400;
+          err.code = 'INVALID_PHONE_LENGTH';
+          throw err;
+        }
+        updates.phone_number = phone;
+      }
+
+      if (Object.keys(updates).length === 0) {
+        const err = new Error('No permitted profile fields provided for update');
+        err.statusCode = 400;
+        err.code = 'EMPTY_UPDATE';
+        throw err;
+      }
+
+      updates.updated_at = new Date().toISOString();
+
+      const { data: updatedAdmin, error: updateErr } = await supabase
+        .from('platform_admins')
+        .update(updates)
+        .eq('id', admin.id)
+        .select('id, email, full_name, role, is_active, mfa_enrolled, avatar_url, phone_number')
+        .single();
+
+      if (updateErr) throw updateErr;
+
+      await supabase.from('platform_audit_logs').insert({
+        admin_id: admin.id,
+        admin_email: admin.email,
+        admin_role: admin.role,
+        action: 'ADMIN_PROFILE_UPDATED',
+        target_user_id: admin.id,
+        details: { updated_fields: Object.keys(updates).filter(k => k !== 'updated_at') },
+        client_ip: req.socket.remoteAddress || '127.0.0.1'
+      });
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        message: 'Profile updated successfully',
+        data: {
+          id: updatedAdmin.id,
+          email: updatedAdmin.email,
+          fullName: updatedAdmin.full_name,
+          role: updatedAdmin.role,
+          isActive: updatedAdmin.is_active,
+          mfaEnrolled: updatedAdmin.mfa_enrolled,
+          avatarUrl: updatedAdmin.avatar_url,
+          phoneNumber: updatedAdmin.phone_number
         }
       }));
     } catch (err) {

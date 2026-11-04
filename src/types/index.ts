@@ -10,6 +10,8 @@ export interface AdminUser {
   mfaEnabled: boolean;
   lastLoginAt: string;
   createdAt: string;
+  avatarUrl?: string | null;
+  phoneNumber?: string | null;
 }
 
 export type BusinessStatus = 'Active' | 'Suspended';

@@ -245,3 +245,4 @@ runVerification().catch(err => {
   console.error('\n❌ VERIFICATION TEST FAILED:', err);
   process.exit(1);
 });
+

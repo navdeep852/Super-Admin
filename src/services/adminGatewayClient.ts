@@ -148,14 +148,24 @@ class AdminGatewayClient {
   /**
    * Change password for the currently authenticated administrator.
    */
-  async changePassword(currentPassword: string, newPassword: string): Promise<{ success: boolean; message: string }> {
+  async changePassword(newPassword: string, currentPassword?: string): Promise<{ success: boolean; message: string }> {
+    const payload: { new_password: string; current_password?: string } = {
+      new_password: newPassword,
+    };
+    if (currentPassword) {
+      payload.current_password = currentPassword;
+    }
+
     const res = await fetch(`${GATEWAY_BASE_URL}/api/v1/auth/password/change`, {
       method: 'POST',
       headers: this.getHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
+      body: JSON.stringify(payload)
     });
-    const json = await res.json();
+    const json = await res.json().catch(() => ({}));
     if (!res.ok || !json.success) {
+      if (res.status === 401 && json.code !== 'INVALID_CURRENT_PASSWORD') {
+        throw new Error('Authentication session expired or invalid. Please sign in again.');
+      }
       throw new Error(json.message || 'Failed to update administrator password');
     }
     return json;

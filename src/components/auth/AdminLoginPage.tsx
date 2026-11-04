@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useAdminAuth } from '../../context/AdminAuthContext';
 import { adminGatewayClient } from '../../services/adminGatewayClient';
+import { validatePasswordChange } from '../../utils';
 
 type LoginStep = 'credentials' | 'mfa' | 'forgot' | 'reset';
 
@@ -115,16 +116,12 @@ export const AdminLoginPage: React.FC = () => {
     }
   };
 
-  // Reset password strength validation
-  const resetHasMinLength = resetNewPassword.length >= 8;
-  const resetHasLetter = /[a-zA-Z]/.test(resetNewPassword);
-  const resetHasNumberOrSymbol = /[\d\W_]/.test(resetNewPassword);
-  const resetPasswordsMatch = resetNewPassword.length > 0 && resetNewPassword === resetConfirmPassword;
-  const isResetValid = resetHasMinLength && resetHasLetter && resetHasNumberOrSymbol && resetPasswordsMatch;
+  // Centralized password strength and matching validation
+  const resetValidation = validatePasswordChange(resetNewPassword, resetConfirmPassword, loading);
 
   const handleResetSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isResetValid) return;
+    if (!resetValidation.isValid || loading) return;
 
     setError(null);
     setSuccessMessage(null);
@@ -474,43 +471,50 @@ export const AdminLoginPage: React.FC = () => {
                   {showResetConfirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
+              {/* Real-time mismatch message */}
+              {resetValidation.mismatchMessage && (
+                <p className="mt-1 text-[11px] text-rose-400 flex items-center gap-1 font-medium">
+                  <AlertCircle className="w-3 h-3 shrink-0" />
+                  {resetValidation.mismatchMessage}
+                </p>
+              )}
             </div>
 
             {/* Checklist */}
             <div className="p-3 bg-slate-800/40 border border-slate-700/50 rounded-lg space-y-1.5 text-[11px]">
               <div className="font-semibold text-slate-400 mb-1">Password Requirements:</div>
-              <div className={`flex items-center gap-1.5 ${resetHasMinLength ? 'text-emerald-400' : 'text-slate-500'}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${resetHasMinLength ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+              <div className={`flex items-center gap-1.5 transition-colors ${resetValidation.hasMinLength ? 'text-emerald-400 font-medium' : 'text-slate-500'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full transition-colors ${resetValidation.hasMinLength ? 'bg-emerald-400' : 'bg-slate-600'}`} />
                 Minimum 8 characters
               </div>
-              <div className={`flex items-center gap-1.5 ${resetHasLetter ? 'text-emerald-400' : 'text-slate-500'}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${resetHasLetter ? 'bg-emerald-400' : 'bg-slate-600'}`} />
-                Contains letters
+              <div className={`flex items-center gap-1.5 transition-colors ${resetValidation.hasLetter ? 'text-emerald-400 font-medium' : 'text-slate-500'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full transition-colors ${resetValidation.hasLetter ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                Contains at least one letter
               </div>
-              <div className={`flex items-center gap-1.5 ${resetHasNumberOrSymbol ? 'text-emerald-400' : 'text-slate-500'}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${resetHasNumberOrSymbol ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+              <div className={`flex items-center gap-1.5 transition-colors ${resetValidation.hasNumberOrSymbol ? 'text-emerald-400 font-medium' : 'text-slate-500'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full transition-colors ${resetValidation.hasNumberOrSymbol ? 'bg-emerald-400' : 'bg-slate-600'}`} />
                 Contains numbers or special characters
               </div>
-              <div className={`flex items-center gap-1.5 ${resetPasswordsMatch ? 'text-emerald-400' : 'text-slate-500'}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${resetPasswordsMatch ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+              <div className={`flex items-center gap-1.5 transition-colors ${resetValidation.passwordsMatch ? 'text-emerald-400 font-medium' : 'text-slate-500'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full transition-colors ${resetValidation.passwordsMatch ? 'bg-emerald-400' : 'bg-slate-600'}`} />
                 Passwords match exactly
               </div>
             </div>
 
             <button
               type="submit"
-              disabled={loading || !isResetValid}
-              className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm rounded-lg transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 disabled:opacity-50"
+              disabled={loading || !resetValidation.isValid}
+              className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm rounded-lg transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               {loading ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Saving New Password...
+                  Updating Password...
                 </>
               ) : (
                 <>
-                  Update Password & Sign In
-                  <CheckCircle2 className="w-4 h-4" />
+                  <Lock className="w-4 h-4" />
+                  Update Password
                 </>
               )}
             </button>

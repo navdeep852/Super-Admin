@@ -11,6 +11,7 @@ import { OverviewPage } from './pages/overview/OverviewPage';
 import { BusinessManagementPage } from './pages/businesses/BusinessManagementPage';
 import { UserManagementPage } from './pages/users/UserManagementPage';
 import { SubscriptionManagementPage } from './pages/subscriptions/SubscriptionManagementPage';
+import { SubscriptionPlansPage } from './pages/plans/SubscriptionPlansPage';
 import { PaymentsRevenuePage } from './pages/payments/PaymentsRevenuePage';
 import { CouponsOffersPage } from './pages/coupons/CouponsOffersPage';
 import { AnalyticsReportsPage } from './pages/analytics/AnalyticsReportsPage';
@@ -24,6 +25,7 @@ const VALID_MODULES: NavigationModule[] = [
   'businesses',
   'users',
   'subscriptions',
+  'plans',
   'payments',
   'coupons',
   'analytics',
@@ -101,10 +103,12 @@ export const App: React.FC = () => {
         return { title: 'User Management', subtitle: 'Tenant memberships and platform administrators' };
       case 'subscriptions':
         return { title: 'Subscription Management', subtitle: 'Plan tiers and renewal lifecycles' };
+      case 'plans':
+        return { title: 'Subscription Plans Catalog', subtitle: 'Tiers, monthly/annual pricing, and feature matrices' };
       case 'payments':
         return { title: 'Payments & Revenue', subtitle: 'Verified transactions and 18% GST ledger' };
       case 'coupons':
-        return { title: 'Coupons & Promotional Offers', subtitle: 'Campaign incentives and statutory quotas' };
+        return { title: 'Promotional Offers & Discounts', subtitle: 'Campaign incentives and statutory quotas' };
       case 'analytics':
         return { title: 'Analytics & Reports', subtitle: 'Business intelligence and financial charts' };
       case 'support':
@@ -137,6 +141,8 @@ export const App: React.FC = () => {
         return <UserManagementPage />;
       case 'subscriptions':
         return <SubscriptionManagementPage />;
+      case 'plans':
+        return <SubscriptionPlansPage />;
       case 'payments':
         return <PaymentsRevenuePage />;
       case 'coupons':

@@ -5,22 +5,32 @@ import { adminGatewayClient, GatewayHealthStatus } from '../../services/adminGat
 export const MockBanner: React.FC = () => {
   const [health, setHealth] = useState<GatewayHealthStatus | null>(null);
   const [dismissed, setDismissed] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
 
   useEffect(() => {
     let mounted = true;
     const probe = async () => {
-      const res = await adminGatewayClient.checkHealth();
-      if (mounted) setHealth(res);
+      try {
+        const res = await adminGatewayClient.checkHealth();
+        if (mounted) {
+          setHealth(res);
+          setIsInitialLoading(false);
+        }
+      } catch {
+        if (mounted) {
+          setIsInitialLoading(false);
+        }
+      }
     };
     probe();
-    const interval = setInterval(probe, 20000);
+    const interval = setInterval(probe, 15000);
     return () => {
       mounted = false;
       clearInterval(interval);
     };
   }, []);
 
-  if (dismissed) return null;
+  if (dismissed || isInitialLoading) return null;
 
   const isLive = health?.status === 'operational' || health?.status === 'degraded' || (health as any)?.ok === true || (health as any)?.status === 'ok';
 
@@ -35,7 +45,7 @@ export const MockBanner: React.FC = () => {
             Live Staging Gateway Connected:
           </span>
           <span className="hidden sm:inline text-slate-700 dark:text-slate-300">
-            Serving live multi-tenant state from Supabase <span className="font-mono text-emerald-600 dark:text-emerald-400 font-semibold">{health?.stagingProjectRef || 'vlbhxcajphyjkeueubud'}</span> (AWS eu-west-1).
+            Serving live multi-tenant state from Supabase <span className="font-mono text-emerald-600 dark:text-emerald-400 font-semibold">{health?.stagingProjectRef || (health as any)?.projectRef || 'vlbhxcajphyjkeueubud'}</span> (AWS eu-west-1).
           </span>
           <span className="hidden md:inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 font-medium">
             <ShieldCheck className="w-3 h-3" />
@@ -45,7 +55,7 @@ export const MockBanner: React.FC = () => {
         <div className="flex items-center gap-2 shrink-0">
           <span className="text-[11px] text-emerald-700 dark:text-emerald-400 hidden lg:inline flex items-center gap-1">
             <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-            BFF Uptime: {health?.services?.gatewayBff?.uptimeSeconds || 0}s
+            BFF Uptime: {(health as any)?.uptimeSeconds || (health as any)?.services?.gatewayBff?.uptimeSeconds || 0}s
           </span>
           <button
             onClick={() => setDismissed(true)}

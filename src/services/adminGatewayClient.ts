@@ -4,7 +4,7 @@
 // Version: 3.0.0 (Hardened with JWT Bearer auth & Web Crypto GCAP assertions)
 // ==============================================================================
 
-import { Business, OverviewMetrics } from '../types';
+import { Business, OverviewMetrics, SubscriptionPlan } from '../types';
 import { mockOverviewMetrics, mockPlanDistribution, mockRevenueTrends, mockUpcomingExpirations } from '../data/mockOverview';
 import { mockBusinesses } from '../data/mockBusinesses';
 import { mockTenantUsers } from '../data/mockUsers';
@@ -612,6 +612,160 @@ class AdminGatewayClient {
     } catch (err: any) {
       return { success: false, message: err.message };
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Subscription Plans Management API
+  // ---------------------------------------------------------------------------
+
+  async getPlans(): Promise<{ plans: SubscriptionPlan[]; isLive: boolean }> {
+    try {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/v1/plans`, {
+        headers: this.getHeaders()
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.data) {
+          return { plans: json.data, isLive: true };
+        }
+      }
+    } catch (err) {
+      console.warn('[AdminGatewayClient] Plans fetch error:', err);
+    }
+    return { plans: [], isLive: false };
+  }
+
+  async createPlan(planData: Partial<SubscriptionPlan>): Promise<any> {
+    const res = await fetch(`${GATEWAY_BASE_URL}/api/v1/plans`, {
+      method: 'POST',
+      headers: this.getHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(planData)
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || 'Failed to create subscription plan');
+    }
+    return json.data;
+  }
+
+  async updatePlan(planId: string, planData: Partial<SubscriptionPlan>): Promise<any> {
+    const res = await fetch(`${GATEWAY_BASE_URL}/api/v1/plans/${planId}`, {
+      method: 'PUT',
+      headers: this.getHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(planData)
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || 'Failed to update subscription plan');
+    }
+    return json.data;
+  }
+
+  async archivePlan(planId: string): Promise<any> {
+    const res = await fetch(`${GATEWAY_BASE_URL}/api/v1/plans/${planId}/archive`, {
+      method: 'POST',
+      headers: this.getHeaders()
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || 'Failed to archive subscription plan');
+    }
+    return json;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Offers & Promotional Discounts API
+  // ---------------------------------------------------------------------------
+
+  async getOffers(): Promise<{ offers: any[]; isLive: boolean }> {
+    try {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/v1/offers`, {
+        headers: this.getHeaders()
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.data) {
+          return { offers: json.data, isLive: true };
+        }
+      }
+    } catch (err) {
+      console.warn('[AdminGatewayClient] Offers fetch error:', err);
+    }
+    return { offers: [], isLive: false };
+  }
+
+  async createOffer(offerData: any): Promise<any> {
+    const res = await fetch(`${GATEWAY_BASE_URL}/api/v1/offers`, {
+      method: 'POST',
+      headers: this.getHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(offerData)
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || 'Failed to create promotional offer');
+    }
+    return json.data;
+  }
+
+  async toggleOffer(offerId: string): Promise<any> {
+    const res = await fetch(`${GATEWAY_BASE_URL}/api/v1/offers/${offerId}/toggle`, {
+      method: 'POST',
+      headers: this.getHeaders()
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || 'Failed to toggle offer status');
+    }
+    return json;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Authoritative Pricing Calculation Engine Preview API
+  // ---------------------------------------------------------------------------
+
+  async previewPricing(params: {
+    plan_id: string;
+    billing_cycle?: 'monthly' | 'annual';
+    workspace_id?: string;
+    coupon_code?: string;
+    custom_price_inr?: number;
+  }): Promise<any> {
+    const res = await fetch(`${GATEWAY_BASE_URL}/api/v1/pricing/preview`, {
+      method: 'POST',
+      headers: this.getHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(params)
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || 'Failed to calculate pricing preview');
+    }
+    return json.data;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Workspace Subscription Control API (Manage Subscription)
+  // ---------------------------------------------------------------------------
+
+  async manageWorkspaceSubscription(workspaceId: string, payload: {
+    action: 'change_plan' | 'upgrade' | 'downgrade' | 'extend_trial' | 'extend_expiry' | 'assign_custom_price' | 'apply_discount' | 'cancel_at_period_end';
+    plan_id?: string;
+    billing_interval?: 'monthly' | 'annual';
+    custom_price_inr?: number;
+    override_reason?: string;
+    override_days?: number;
+    extension_days?: number;
+    coupon_code?: string;
+  }): Promise<any> {
+    const res = await fetch(`${GATEWAY_BASE_URL}/api/v1/workspaces/${workspaceId}/subscription`, {
+      method: 'POST',
+      headers: this.getHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(payload)
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || 'Failed to update workspace subscription');
+    }
+    return json.data;
   }
 }
 

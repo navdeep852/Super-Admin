@@ -82,9 +82,9 @@ export interface Subscription {
   id: string;
   workspaceId: string;
   workspaceName: string;
-  planId: 'starter' | 'starter_mobile' | 'business' | 'growth';
+  planId: 'starter' | 'starter_mobile' | 'business' | 'growth' | string;
   planName: string;
-  status: 'active' | 'trialing' | 'past_due' | 'expired' | 'cancelled';
+  status: 'active' | 'trialing' | 'past_due' | 'expired' | 'cancelled' | string;
   billingInterval: 'monthly' | 'annual';
   currentPeriodStart: string;
   currentPeriodEnd: string;
@@ -95,6 +95,28 @@ export interface Subscription {
   lastRenewedAt?: string;
   nextRenewalDate: string;
   isManualOverride?: boolean;
+  customPriceInr?: number | null;
+  effectivePriceInr?: number;
+  pricingModel?: string;
+}
+
+export interface SubscriptionPlan {
+  id: string;
+  name: string;
+  tagline?: string;
+  priceMonthlyInr: number;
+  priceAnnualInr: number;
+  allowed_platforms: string[];
+  max_users: number;
+  max_branches: number;
+  features: string[];
+  usageLimits: Record<string, any>;
+  trial_days: number;
+  is_active: boolean;
+  is_archived: boolean;
+  sort_order: number;
+  activeSubscribers?: number;
+  estimatedMonthlyRevenueInr?: number;
 }
 
 export interface PaymentTransaction {
@@ -105,7 +127,7 @@ export interface PaymentTransaction {
   customerEmail: string;
   amountInr: number;
   currency: 'INR';
-  provider: 'youpi_pg';
+  provider: 'youpi_pg' | string;
   status: 'verified_success' | 'failed' | 'refunded' | 'pending';
   planId: string;
   couponRedemptionId?: string;
@@ -114,6 +136,12 @@ export interface PaymentTransaction {
   createdAt: string;
   errorMessage?: string;
   supportReviewRequired?: boolean;
+  originalPlanPriceInr?: number;
+  billingCycle?: string;
+  discountAmountInr?: number;
+  taxableAmountInr?: number;
+  gstAmountInr?: number;
+  finalPayableInr?: number;
 }
 
 export interface Coupon {
@@ -121,11 +149,12 @@ export interface Coupon {
   code: string;
   name: string;
   description: string;
-  discountType: 'percentage' | 'fixed';
+  discountType: 'percentage' | 'fixed' | 'promotional_price';
   discountValue: number;
+  promotionalPriceInr?: number | null;
   maxDiscountCapInr?: number;
   minPurchaseAmountInr: number;
-  applicablePlans: string[]; // ['all'] or explicit
+  applicablePlans: string[];
   applicableInterval: 'all' | 'monthly' | 'annual';
   customerTargeting: 'all' | 'new_customers_only' | 'existing_customers_only';
   firstSubscriptionOnly: boolean;
@@ -137,6 +166,10 @@ export interface Coupon {
   isActive: boolean;
   totalDiscountGrantedInr: number;
   createdAt: string;
+  targetWorkspaceId?: string | null;
+  isPublic?: boolean;
+  bannerText?: string | null;
+  priority?: number;
 }
 
 export interface CouponRedemption {
@@ -218,7 +251,6 @@ export interface OverviewMetrics {
   totalRefundsInr: number;
   mrrInr: number;
   arrInr: number;
-  tenantSalesGmvInr: number; // Tenant retail sales (distinct from platform revenue!)
+  tenantSalesGmvInr: number;
   tenantCollectedInr?: number;
 }
-

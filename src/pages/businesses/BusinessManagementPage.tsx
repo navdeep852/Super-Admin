@@ -79,6 +79,17 @@ export const BusinessManagementPage: React.FC = () => {
   const [actionInProgress, setActionInProgress] = useState(false);
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
+  // Manage Subscription Modal State (Part A & Part C)
+  const [manageSubTarget, setManageSubTarget] = useState<Business | null>(null);
+  const [manageSubAction, setManageSubAction] = useState<'change_plan' | 'extend_trial' | 'custom_price' | 'apply_coupon' | 'cancel_at_period_end'>('change_plan');
+  const [subPlanId, setSubPlanId] = useState<string>('business');
+  const [subInterval, setSubInterval] = useState<'monthly' | 'annual'>('monthly');
+  const [subExtensionDays, setSubExtensionDays] = useState<number>(14);
+  const [subCustomPrice, setSubCustomPrice] = useState<number>(699);
+  const [subOverrideReason, setSubOverrideReason] = useState<string>('');
+  const [subOverrideDays, setSubOverrideDays] = useState<number>(365);
+  const [subCouponCode, setSubCouponCode] = useState<string>('');
+
   const fetchBusinesses = async () => {
     setLoading(true);
     try {
@@ -163,6 +174,55 @@ export const BusinessManagementPage: React.FC = () => {
     } finally {
       setActionInProgress(false);
       setReactivationModalTarget(null);
+    }
+  };
+
+  const handleOpenManageSubscription = (b: Business) => {
+    setManageSubTarget(b);
+    setManageSubAction('change_plan');
+    setSubPlanId(b.planName.toLowerCase().replace(/\s+/g, '_') || 'business');
+    setSubInterval((b.billingInterval as any) || 'monthly');
+    setSubOverrideReason('');
+  };
+
+  const handleConfirmManageSubscription = async () => {
+    if (!manageSubTarget) return;
+    setActionInProgress(true);
+    try {
+      let payload: any = { action: manageSubAction };
+
+      if (manageSubAction === 'change_plan') {
+        payload.plan_id = subPlanId;
+        payload.billing_interval = subInterval;
+      } else if (manageSubAction === 'extend_trial') {
+        payload.extension_days = subExtensionDays;
+      } else if (manageSubAction === 'custom_price') {
+        if (!subOverrideReason.trim()) {
+          throw new Error('Override reason is strictly mandatory for audit compliance');
+        }
+        payload.custom_price_inr = subCustomPrice;
+        payload.override_reason = subOverrideReason.trim();
+        payload.override_days = subOverrideDays;
+      } else if (manageSubAction === 'apply_coupon') {
+        if (!subCouponCode.trim()) {
+          throw new Error('Promotional coupon code is required');
+        }
+        payload.coupon_code = subCouponCode.toUpperCase().trim();
+      }
+
+      await adminGatewayClient.manageWorkspaceSubscription(manageSubTarget.id, payload);
+      setToastMessage({ text: `Subscription terms updated successfully for ${manageSubTarget.legalName}`, type: 'success' });
+      await fetchBusinesses();
+
+      if (selectedBusiness?.id === manageSubTarget.id) {
+        const detail = await adminGatewayClient.getWorkspaceDetail(manageSubTarget.id);
+        setDrawerDetail(detail);
+      }
+      setManageSubTarget(null);
+    } catch (err: any) {
+      setToastMessage({ text: err.message || 'Failed to update subscription', type: 'error' });
+    } finally {
+      setActionInProgress(false);
     }
   };
 
@@ -280,6 +340,15 @@ export const BusinessManagementPage: React.FC = () => {
           >
             <Eye className="w-4 h-4" />
           </button>
+          {hasPermission('subscriptions') && (
+            <button
+              onClick={() => handleOpenManageSubscription(b)}
+              className="p-1.5 rounded-md hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 transition-colors"
+              title="Manage Subscription & Price Overrides"
+            >
+              <CreditCard className="w-4 h-4" />
+            </button>
+          )}
           {hasPermission('businesses') && b.status === 'Active' && (
             <button
               onClick={() => setSuspensionModalTarget(b)}
@@ -660,9 +729,21 @@ export const BusinessManagementPage: React.FC = () => {
             {/* TAB 3: SUBSCRIPTION DETAILS (SECTION 4) */}
             {activeDrawerTab === 'subscription' && (
               <div className="space-y-4">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                  4. Subscription Tier & Commercial Terms
-                </h4>
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                    4. Subscription Tier & Commercial Terms
+                  </h4>
+                  {hasPermission('subscriptions') && (
+                    <button
+                      onClick={() => handleOpenManageSubscription(selectedBusiness)}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
+                    >
+                      <CreditCard className="w-3.5 h-3.5" />
+                      Manage Subscription
+                    </button>
+                  )}
+                </div>
+
                 <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 space-y-3 text-xs">
                   <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
                     <div>
@@ -693,6 +774,20 @@ export const BusinessManagementPage: React.FC = () => {
                       <span className="font-mono text-slate-800 dark:text-slate-200">{formatDate(selectedBusiness.periodEnd)}</span>
                     </div>
                   </div>
+
+                  {/* Negotiated Override Details if present */}
+                  {drawerDetail?.subscription?.custom_price_inr && (
+                    <div className="mt-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs">
+                      <div className="flex items-center justify-between text-amber-500 font-semibold mb-1">
+                        <span>Custom Negotiated Override Active</span>
+                        <span className="font-mono text-sm">{formatINR(drawerDetail.subscription.custom_price_inr)} / cycle</span>
+                      </div>
+                      <div className="text-[11px] text-slate-400">
+                        <span>Reason: </span>
+                        <span className="text-slate-200">{drawerDetail.subscription.override_reason || 'Administrative arrangement'}</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -898,6 +993,169 @@ export const BusinessManagementPage: React.FC = () => {
           <p className="text-xs text-slate-600 dark:text-slate-400">
             Are you sure you want to reactivate <strong className="text-slate-900 dark:text-slate-100">{reactivationModalTarget?.legalName}</strong>?
           </p>
+        </div>
+      </Modal>
+
+      {/* MANAGE SUBSCRIPTION MODAL (PART A & PART C) */}
+      <Modal
+        isOpen={!!manageSubTarget}
+        onClose={() => setManageSubTarget(null)}
+        title={`Manage Subscription: ${manageSubTarget?.legalName}`}
+        subtitle="Upgrade/downgrade tiers, extend trial days, assign custom negotiated prices, or apply promotional offers."
+        footer={
+          <>
+            <button
+              onClick={() => setManageSubTarget(null)}
+              disabled={actionInProgress}
+              className="px-3.5 py-2 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleConfirmManageSubscription}
+              disabled={actionInProgress || (manageSubAction === 'custom_price' && !subOverrideReason.trim())}
+              className="px-4 py-2 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg transition-colors shadow-xs flex items-center gap-1.5"
+            >
+              {actionInProgress ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
+              Submit Subscription Update
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              Select Administrative Action
+            </label>
+            <select
+              value={manageSubAction}
+              onChange={(e) => setManageSubAction(e.target.value as any)}
+              className="w-full text-xs p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            >
+              <option value="change_plan">Change Plan Tier & Billing Interval</option>
+              <option value="extend_trial">Extend Trial Period (+Days)</option>
+              <option value="custom_price">Assign Custom Negotiated Price (Model D)</option>
+              <option value="apply_coupon">Apply Promotional Coupon Code</option>
+              <option value="cancel_at_period_end">Cancel Subscription at Period End</option>
+            </select>
+          </div>
+
+          {manageSubAction === 'change_plan' && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">New Plan Tier</label>
+                  <select
+                    value={subPlanId}
+                    onChange={(e) => setSubPlanId(e.target.value)}
+                    className="w-full text-xs p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
+                  >
+                    <option value="starter">Starter (₹499/mo)</option>
+                    <option value="starter_mobile">Starter Mobile (₹399/mo)</option>
+                    <option value="business">Business (₹999/mo)</option>
+                    <option value="growth">Growth (₹1,999/mo)</option>
+                    <option value="free_trial">Free Trial (₹0)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Billing Interval</label>
+                  <select
+                    value={subInterval}
+                    onChange={(e) => setSubInterval(e.target.value as any)}
+                    className="w-full text-xs p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
+                  >
+                    <option value="monthly">Monthly</option>
+                    <option value="annual">Annual (2-Mo Free)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {manageSubAction === 'extend_trial' && (
+            <div>
+              <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Extension Days</label>
+              <select
+                value={subExtensionDays}
+                onChange={(e) => setSubExtensionDays(Number(e.target.value))}
+                className="w-full text-xs p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
+              >
+                <option value={7}>+7 Days</option>
+                <option value={14}>+14 Days</option>
+                <option value={30}>+30 Days</option>
+                <option value={60}>+60 Days</option>
+              </select>
+            </div>
+          )}
+
+          {manageSubAction === 'custom_price' && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                    Custom Negotiated Price (₹ / cycle)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={subCustomPrice}
+                    onChange={(e) => setSubCustomPrice(Number(e.target.value))}
+                    className="w-full text-xs p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                    Override Validity
+                  </label>
+                  <select
+                    value={subOverrideDays}
+                    onChange={(e) => setSubOverrideDays(Number(e.target.value))}
+                    className="w-full text-xs p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
+                  >
+                    <option value={30}>30 Days</option>
+                    <option value={90}>90 Days</option>
+                    <option value={180}>180 Days</option>
+                    <option value={365}>1 Year (365 Days)</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                  Mandatory Audit Override Reason <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={subOverrideReason}
+                  onChange={(e) => setSubOverrideReason(e.target.value)}
+                  placeholder="e.g. Key partner agreed rate, Early adopter concession..."
+                  className="w-full text-xs p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
+                />
+              </div>
+            </div>
+          )}
+
+          {manageSubAction === 'apply_coupon' && (
+            <div>
+              <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                Promotional Coupon Code
+              </label>
+              <input
+                type="text"
+                required
+                value={subCouponCode}
+                onChange={(e) => setSubCouponCode(e.target.value.toUpperCase())}
+                placeholder="e.g. VISTAAR20, SPECIAL699"
+                className="w-full text-xs p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-mono uppercase"
+              />
+            </div>
+          )}
+
+          {manageSubAction === 'cancel_at_period_end' && (
+            <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-300 text-xs">
+              Subscription will remain active until the end of the current billing cycle, then transition to expired status automatically.
+            </div>
+          )}
         </div>
       </Modal>
     </PageContainer>

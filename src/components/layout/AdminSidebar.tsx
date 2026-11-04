@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ShieldAlert,
+  Layers,
 } from 'lucide-react';
 import { cn } from '../../utils';
 import { useAdminAuth } from '../../context/AdminAuthContext';
@@ -23,6 +24,7 @@ export type NavigationModule =
   | 'businesses'
   | 'users'
   | 'subscriptions'
+  | 'plans'
   | 'payments'
   | 'coupons'
   | 'analytics'
@@ -50,13 +52,14 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   // Core Modules
   { id: 'overview', label: 'Overview', icon: LayoutDashboard, group: 'core' },
-  { id: 'businesses', label: 'Business Management', icon: Building2, badge: '8', group: 'core' },
+  { id: 'businesses', label: 'Business Management', icon: Building2, group: 'core' },
   { id: 'users', label: 'User Management', icon: Users, group: 'core' },
 
   // Financial & Commerce
   { id: 'subscriptions', label: 'Subscriptions', icon: CreditCard, group: 'operations' },
+  { id: 'plans', label: 'Subscription Plans', icon: Layers, group: 'operations' },
   { id: 'payments', label: 'Payments & Revenue', icon: Receipt, group: 'operations' },
-  { id: 'coupons', label: 'Coupons & Offers', icon: Tag, badge: '5', group: 'operations' },
+  { id: 'coupons', label: 'Offers & Discounts', icon: Tag, group: 'operations' },
   { id: 'analytics', label: 'Analytics & Reports', icon: BarChart3, group: 'operations' },
 
   // Governance & Platform

@@ -44,7 +44,7 @@ export const SubscriptionManagementPage: React.FC = () => {
 
   // Plan Override Modal
   const [selectedSub, setSelectedSub] = useState<Subscription | null>(null);
-  const [newPlanId, setNewPlanId] = useState<'starter' | 'starter_mobile' | 'business' | 'growth'>('business');
+  const [newPlanId, setNewPlanId] = useState<string>('business');
   const [extensionDays, setExtensionDays] = useState(30);
 
   const filteredSubs = subscriptions.filter((sub) => {
@@ -62,16 +62,17 @@ export const SubscriptionManagementPage: React.FC = () => {
         if (s.id === selectedSub.id) {
           const newEnd = new Date(s.currentPeriodEnd);
           newEnd.setDate(newEnd.getDate() + extensionDays);
-          const planNameMap = {
+          const planNameMap: Record<string, string> = {
             starter: 'Starter Plan',
             starter_mobile: 'Starter + Mobile Add-on',
             business: 'Business Plan',
             growth: 'Growth Plan',
+            free_trial: '14-Day Free Trial',
           };
           return {
             ...s,
             planId: newPlanId,
-            planName: planNameMap[newPlanId],
+            planName: planNameMap[newPlanId] || newPlanId,
             status: 'active' as const,
             currentPeriodEnd: newEnd.toISOString(),
             isManualOverride: true,

@@ -8,6 +8,7 @@ export type PlatformPermission =
   | 'businesses'
   | 'users'
   | 'subscriptions'
+  | 'plans'
   | 'payments'
   | 'coupons'
   | 'analytics'
@@ -34,11 +35,12 @@ export type PlatformPermission =
  */
 const ROLE_PERMISSIONS: Record<PlatformRole, ReadonlySet<string>> = {
   super_admin: new Set<string>([
-    // All 11 Modules
+    // All 12 Modules
     'overview',
     'businesses',
     'users',
     'subscriptions',
+    'plans',
     'payments',
     'coupons',
     'analytics',
@@ -64,6 +66,7 @@ const ROLE_PERMISSIONS: Record<PlatformRole, ReadonlySet<string>> = {
     'overview',
     'businesses',
     'subscriptions',
+    'plans',
     'payments',
     'coupons',
     'analytics',

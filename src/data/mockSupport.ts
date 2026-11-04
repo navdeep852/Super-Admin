@@ -1,0 +1,85 @@
+import { SupportTicket } from '../types';
+
+export const mockSupportTickets: SupportTicket[] = [
+  {
+    id: 'tkt-01',
+    ticketNumber: 'TICK-2026-9041',
+    workspaceId: 'ws-101',
+    workspaceName: 'Apex Retail India Pvt Ltd',
+    contactName: 'Rajesh Sharma',
+    contactEmail: 'rajesh.sharma@apexretail.in',
+    subject: 'Assistance required applying ANNUAL10 promo code on 4th branch expansion',
+    category: 'Billing',
+    priority: 'High',
+    status: 'In Progress',
+    createdAt: '2026-11-01T09:15:00Z',
+    updatedAt: '2026-11-01T11:20:00Z',
+    assignedTo: 'Priyanka Sen (Billing Admin)',
+    lastMessageSnippet: 'Support response sent: Code ANNUAL10 is applicable for primary organization renewal; checking branch quota reservation.'
+  },
+  {
+    id: 'tkt-02',
+    ticketNumber: 'TICK-2026-9038',
+    workspaceId: 'ws-103',
+    workspaceName: 'Kaveri Provisions & FMCG',
+    contactName: 'M. K. Ramanathan',
+    contactEmail: 'ramanathan@kaveriprovisions.in',
+    subject: 'Request for account reactivation after card payment failure',
+    category: 'Subscription',
+    priority: 'Critical',
+    status: 'Open',
+    createdAt: '2026-11-01T08:45:00Z',
+    updatedAt: '2026-11-01T08:45:00Z',
+    assignedTo: 'Karan Malhotra (Support Agent)',
+    lastMessageSnippet: 'Customer: Updated our bank mandate; kindly guide on paying outstanding amount to remove suspension.'
+  },
+  {
+    id: 'tkt-03',
+    ticketNumber: 'TICK-2026-9012',
+    workspaceId: 'ws-104',
+    workspaceName: 'Shanti Textiles LLP',
+    contactName: 'Vikram Singhania',
+    contactEmail: 'vikram@shantitextiles.com',
+    subject: 'Barcode thermal printer driver issue on Windows desktop app',
+    category: 'Technical',
+    priority: 'Medium',
+    status: 'Resolved',
+    createdAt: '2026-10-30T14:10:00Z',
+    updatedAt: '2026-10-31T16:30:00Z',
+    assignedTo: 'Karan Malhotra',
+    lastMessageSnippet: 'Resolved: Advised installation of TSC 244 Pro USB direct spooler driver; confirmed barcode print successful.'
+  },
+  {
+    id: 'tkt-04',
+    ticketNumber: 'TICK-2026-8994',
+    workspaceId: 'ws-102',
+    workspaceName: 'Zenith Hypermarkets LLP',
+    contactName: 'Priya Nambiar',
+    contactEmail: 'priya@zenithhyper.com',
+    subject: 'Enterprise API webhook configuration for automated SAP Daybook sync',
+    category: 'Access',
+    priority: 'Medium',
+    status: 'Waiting on Customer',
+    createdAt: '2026-10-28T10:00:00Z',
+    updatedAt: '2026-10-29T15:20:00Z',
+    assignedTo: 'Rohit Verma',
+    lastMessageSnippet: 'Waiting on customer: Sent documentation for HMAC webhook listener endpoint; awaiting customer endpoint URL.'
+  },
+  {
+    id: 'tkt-05',
+    ticketNumber: 'TICK-2026-8950',
+    workspaceId: 'ws-107',
+    workspaceName: 'Omkar Pharma & Surgical Distributors',
+    contactName: 'Dr. Ramesh Patel',
+    contactEmail: 'ramesh.patel@omkarpharma.com',
+    subject: 'Inquiry regarding refund credit status following license review suspension',
+    category: 'Billing',
+    priority: 'Low',
+    status: 'Resolved',
+    createdAt: '2026-10-25T11:30:00Z',
+    updatedAt: '2026-10-28T14:00:00Z',
+    assignedTo: 'Priyanka Sen',
+    lastMessageSnippet: 'Resolved: Confirmed statutory refund of ₹24,990 credited back to ICICI Current Account under Ref #YOUPI_TX_20261028_221084.'
+  }
+];
+

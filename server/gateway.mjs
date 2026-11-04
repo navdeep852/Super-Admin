@@ -1410,6 +1410,7 @@ export const server = http.createServer(async (req, res) => {
 
       const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10));
       const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '20', 10)));
+      const scope = url.searchParams.get('scope') || 'all'; // 'genuine' | 'test' | 'all'
       const search = (url.searchParams.get('search') || '').trim();
       const status = (url.searchParams.get('status') || 'all').toLowerCase();
       const plan = url.searchParams.get('plan') || 'all';
@@ -1443,6 +1444,7 @@ export const server = http.createServer(async (req, res) => {
           owner_email,
           owner_phone,
           is_active,
+          is_test,
           is_main_branch,
           branch_name,
           branch_code,
@@ -1476,6 +1478,12 @@ export const server = http.createServer(async (req, res) => {
           )
         `, { count: 'exact' })
         .is('deleted_at', null);
+
+      if (scope === 'genuine') {
+        query = query.eq('is_test', false);
+      } else if (scope === 'test') {
+        query = query.eq('is_test', true);
+      }
 
       if (search) {
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search);
@@ -1522,6 +1530,7 @@ export const server = http.createServer(async (req, res) => {
           city: bSetting?.city || 'City',
           state: bSetting?.state || 'State',
           status: ws.is_active ? 'Active' : 'Suspended',
+          isTest: ws.is_test || false,
           plan: planObj?.name || (sub?.plan_id === 'free_trial' ? '14-Day Free Trial' : sub?.plan_id) || '14-Day Free Trial',
           planId: (sub?.plan_id || 'free_trial').toLowerCase(),
           planName: planObj?.name || (sub?.plan_id === 'free_trial' ? '14-Day Free Trial' : sub?.plan_id) || '14-Day Free Trial',
@@ -2121,35 +2130,146 @@ export const server = http.createServer(async (req, res) => {
   }
 
   // ---------------------------------------------------------------------------
-  // Route: Subscriptions Listing (Subscription Management)
+  // Route: Subscriptions Listing (Subscription Management — Real Data Integrity)
   // ---------------------------------------------------------------------------
   if (url.pathname === '/api/v1/subscriptions' && req.method === 'GET') {
     try {
       await authorizeAdmin(req, ['super_admin', 'billing_admin'], 'aal1');
 
-      const { data: subs, error } = await supabase
-        .from('workspace_subscriptions')
-        .select(`
-          id,
-          workspace_id,
-          plan_id,
-          status,
-          trial_start,
-          trial_end,
-          current_period_start,
-          current_period_end,
-          billing_interval,
-          cancel_at_period_end,
-          created_at,
-          subscription_plans (*),
-          workspaces (company_name, owner_name, owner_email)
-        `)
-        .order('created_at', { ascending: false });
+      const scope = url.searchParams.get('scope') || 'genuine'; // 'genuine' | 'test' | 'all'
+      const statusFilter = url.searchParams.get('status') || 'all';
+      const planFilter = url.searchParams.get('plan') || 'all';
+      const searchQuery = (url.searchParams.get('search') || '').trim().toLowerCase();
 
+      // Query authoritative view
+      let query = supabase
+        .from('v_authoritative_subscriptions')
+        .select('*')
+        .order('subscription_created_at', { ascending: false });
+
+      if (scope === 'genuine') {
+        query = query.eq('subscription_is_test', false);
+      } else if (scope === 'test') {
+        query = query.eq('subscription_is_test', true);
+      }
+
+      if (statusFilter !== 'all') {
+        query = query.eq('subscription_status', statusFilter);
+      }
+
+      if (planFilter !== 'all') {
+        query = query.eq('plan_id', planFilter);
+      }
+
+      const { data: rawSubs, error } = await query;
       if (error) throw error;
 
+      // Filter by search query if supplied
+      let filtered = rawSubs || [];
+      if (searchQuery) {
+        filtered = filtered.filter(s =>
+          (s.workspace_name && s.workspace_name.toLowerCase().includes(searchQuery)) ||
+          (s.owner_name && s.owner_name.toLowerCase().includes(searchQuery)) ||
+          (s.owner_email && s.owner_email.toLowerCase().includes(searchQuery)) ||
+          (s.subscription_id && s.subscription_id.toLowerCase().includes(searchQuery)) ||
+          (s.plan_name && s.plan_name.toLowerCase().includes(searchQuery))
+        );
+      }
+
+      // Compute statistics directly from database
+      const { data: allStatsSubs, error: statsErr } = await supabase
+        .from('v_authoritative_subscriptions')
+        .select('*');
+
+      if (statsErr) throw statsErr;
+
+      const statsPool = scope === 'genuine' 
+        ? (allStatsSubs || []).filter(s => !s.subscription_is_test)
+        : scope === 'test'
+        ? (allStatsSubs || []).filter(s => s.subscription_is_test)
+        : (allStatsSubs || []);
+
+      let wsCountQuery = supabase
+        .from('workspaces')
+        .select('*', { count: 'exact', head: true });
+
+      if (scope === 'genuine') {
+        wsCountQuery = wsCountQuery.eq('is_test', false);
+      } else if (scope === 'test') {
+        wsCountQuery = wsCountQuery.eq('is_test', true);
+      }
+
+      const { count: totalWsCount } = await wsCountQuery;
+
+      const stats = {
+        totalRegisteredWorkspaces: totalWsCount || 0,
+        totalSubscribedWorkspaces: statsPool.length,
+        activePaidSubscriptions: statsPool.filter(s => s.subscription_status === 'active' && s.plan_id !== 'free_trial').length,
+        activeFreeTrials: statsPool.filter(s => s.subscription_status === 'trialing' || s.plan_id === 'free_trial').length,
+        expiredSubscriptions: statsPool.filter(s => s.subscription_status === 'expired').length,
+        cancelledSubscriptions: statsPool.filter(s => s.subscription_status === 'cancelled').length,
+        pastDueSubscriptions: statsPool.filter(s => s.subscription_status === 'past_due').length,
+        totalRecurringValueInr: statsPool
+          .filter(s => s.subscription_status === 'active' && s.plan_id !== 'free_trial')
+          .reduce((sum, s) => {
+            const price = Number(s.effective_price_inr || s.standard_plan_price_inr || 0);
+            return sum + (s.billing_interval === 'annual' ? Math.round(price / 12) : price);
+          }, 0)
+      };
+
+      // Map rows with exact, transparent financial properties
+      const mapped = filtered.map(s => {
+        const isTrial = s.subscription_status === 'trialing' || s.plan_id === 'free_trial';
+        const stdPrice = Number(s.standard_plan_price_inr || 0);
+        const effectivePrice = isTrial ? 0 : Number(s.effective_price_inr || stdPrice);
+        const discountApplied = Math.max(0, stdPrice - effectivePrice);
+        const gstAmount = Number((effectivePrice * 0.18).toFixed(2));
+        const finalPayable = Number((effectivePrice + gstAmount).toFixed(2));
+
+        return {
+          id: s.subscription_id,
+          workspaceId: s.workspace_id,
+          workspaceName: s.workspace_name,
+          ownerName: s.owner_name || 'Owner',
+          ownerEmail: s.owner_email || '—',
+          ownerPhone: s.owner_phone || '—',
+          planId: s.plan_id,
+          planName: s.plan_name || 'Standard Plan',
+          status: s.subscription_status,
+          billingInterval: s.billing_interval || 'annual',
+          originalPlanPriceInr: stdPrice,
+          effectivePriceInr: effectivePrice,
+          discountAppliedInr: discountApplied,
+          gstAmountInr: gstAmount,
+          finalPayableInr: finalPayable,
+          customPriceInr: s.custom_price_inr,
+          overrideReason: s.override_reason,
+          pricingModel: s.pricing_model || 'standard',
+          trialStart: s.trial_start,
+          trialEnd: s.trial_end,
+          currentPeriodStart: s.current_period_start,
+          currentPeriodEnd: s.current_period_end,
+          cancelAtPeriodEnd: s.cancel_at_period_end || false,
+          isTest: s.subscription_is_test || false,
+          createdAt: s.subscription_created_at
+        };
+      });
+
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: true, data: subs || [] }));
+      res.end(JSON.stringify({
+        success: true,
+        meta: {
+          environment: nodeEnv,
+          stagingProjectRef,
+          isProduction: false,
+          dataSource: 'Supabase PostgreSQL (v_authoritative_subscriptions)',
+          synchronizedAt: new Date().toISOString(),
+          scope,
+          totalReturned: mapped.length,
+          stats
+        },
+        data: mapped
+      }));
     } catch (err) {
       sendSafeError(res, err);
     }

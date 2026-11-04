@@ -130,3 +130,4 @@ When a checkout or payment succeeds, the system records an immutable audit recor
 - [x] Promotional Offers & Discounts Page (`src/pages/coupons/CouponsOffersPage.tsx`) with live Pricing Preview simulator.
 - [x] Business Management deep-dive drawer with live Manage Subscription action modal.
 - [x] CORS hardening and green live staging badge in `MockBanner.tsx`.
+

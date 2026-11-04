@@ -142,3 +142,4 @@ assert.strictEqual(expiredEligibility.eligible, false);
 console.log('✔ Case 7: Offer eligibility validation enforces activation, dates and plan criteria');
 
 console.log('\nALL PRICING ENGINE TESTS PASSED!\n');
+

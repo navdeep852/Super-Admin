@@ -699,3 +699,4 @@ export const SubscriptionPlansPage: React.FC = () => {
     </PageContainer>
   );
 };
+

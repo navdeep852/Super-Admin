@@ -94,3 +94,4 @@ The integration test suite (`tests/staging_real_business_and_pricing_integration
 - Workspace subscription management with immutable audit logging in `workspace_subscription_events`.
 
 **Result:** `10/10 Tests Passed (100% Green)`.
+

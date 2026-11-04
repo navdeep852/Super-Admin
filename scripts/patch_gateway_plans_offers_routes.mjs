@@ -716,3 +716,4 @@ if (!content.includes(fallbackMarker)) {
 const updatedContent = content.replace(fallbackMarker, newRoutes + '\n' + fallbackMarker);
 fs.writeFileSync(gatewayPath, updatedContent, 'utf8');
 console.log('Successfully patched server/gateway.mjs with plans, offers, and pricing endpoints');
+

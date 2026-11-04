@@ -8,7 +8,6 @@ import { Business, OverviewMetrics, SubscriptionPlan } from '../types';
 import { mockOverviewMetrics, mockPlanDistribution, mockRevenueTrends, mockUpcomingExpirations } from '../data/mockOverview';
 import { mockBusinesses } from '../data/mockBusinesses';
 import { mockTenantUsers } from '../data/mockUsers';
-import { mockSubscriptions } from '../data/mockSubscriptions';
 import { mockPayments } from '../data/mockPayments';
 
 const GATEWAY_BASE_URL = ((import.meta as any).env && (import.meta as any).env.VITE_GATEWAY_URL) || 'http://localhost:3002';
@@ -523,21 +522,38 @@ class AdminGatewayClient {
     return { users: mockTenantUsers, isLive: false };
   }
 
-  async getSubscriptions(): Promise<{ subscriptions: any[]; isLive: boolean }> {
-    try {
-      const res = await fetch(`${GATEWAY_BASE_URL}/api/v1/subscriptions`, {
-        headers: this.getHeaders()
-      });
-      if (res.ok) {
-        const json = await res.json();
-        if (json.success && json.data) {
-          return { subscriptions: json.data, isLive: true };
-        }
-      }
-    } catch (err) {
-      console.warn('[AdminGatewayClient] Falling back to mock subscriptions:', err);
+  async getSubscriptions(params: {
+    scope?: 'genuine' | 'test' | 'all';
+    status?: string;
+    plan?: string;
+    search?: string;
+  } = {}): Promise<{
+    subscriptions: any[];
+    meta?: any;
+    isLive: boolean;
+    error?: string;
+  }> {
+    const q = new URLSearchParams();
+    if (params.scope) q.set('scope', params.scope);
+    if (params.status && params.status !== 'all') q.set('status', params.status);
+    if (params.plan && params.plan !== 'all') q.set('plan', params.plan);
+    if (params.search) q.set('search', params.search);
+
+    const res = await fetch(`${GATEWAY_BASE_URL}/api/v1/subscriptions?${q.toString()}`, {
+      headers: this.getHeaders()
+    });
+
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(errJson.message || `Failed to fetch subscriptions (HTTP ${res.status})`);
     }
-    return { subscriptions: mockSubscriptions, isLive: false };
+
+    const json = await res.json();
+    return {
+      subscriptions: json.data || [],
+      meta: json.meta || null,
+      isLive: true
+    };
   }
 
   async getPayments(): Promise<{ payments: any[]; isLive: boolean }> {

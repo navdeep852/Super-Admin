@@ -37,9 +37,34 @@ interface OverviewPageProps {
 }
 
 type TimeframeOption = 'today' | 'this_week' | 'this_month' | 'last_month' | 'all_time' | 'custom';
+type ScopeOption = 'all' | 'genuine' | 'test';
+
+const initialMetrics: OverviewMetrics = {
+  totalBusinesses: 0,
+  activeBusinesses: 0,
+  suspendedBusinesses: 0,
+  totalUsers: 0,
+  totalEmployees: 0,
+  activeSubscriptions: 0,
+  trialSubscriptions: 0,
+  expiredSubscriptions: 0,
+  pendingRenewals: 0,
+  failedPaymentsCount: 0,
+  newRegistrations: 0,
+  platformCollectedRevenueInr: 0,
+  gstComponentInr: 0,
+  netPlatformRevenueInr: 0,
+  outstandingAmountsInr: 0,
+  totalRefundsInr: 0,
+  tenantSalesGmvInr: 0,
+  tenantCollectedInr: 0,
+  mrrInr: 0,
+  arrInr: 0
+};
 
 export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
   const [timeframe, setTimeframe] = useState<TimeframeOption>('all_time');
+  const [scope, setScope] = useState<ScopeOption>('all');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
   const [showCustomRange, setShowCustomRange] = useState(false);
@@ -52,51 +77,51 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
     registrationGrowth: any[];
     revenueTrends: any[];
     upcomingExpirations: any[];
+    dataSource?: any;
     isLive: boolean;
   }>({
-    metrics: mockOverviewMetrics,
-    planDistribution: mockPlanDistribution,
-    businessStatusDistribution: [
-      { name: 'Active', count: 9, color: '#10b981' },
-      { name: 'Suspended', count: 1, color: '#f43f5e' }
-    ],
-    subscriptionDistribution: [
-      { name: 'Active', count: 6, color: '#10b981' },
-      { name: 'Trialing', count: 2, color: '#38bdf8' },
-      { name: 'Expired', count: 2, color: '#f59e0b' }
-    ],
+    metrics: initialMetrics,
+    planDistribution: [],
+    businessStatusDistribution: [],
+    subscriptionDistribution: [],
     registrationGrowth: [],
-    revenueTrends: mockRevenueTrends,
-    upcomingExpirations: mockUpcomingExpirations,
+    revenueTrends: [],
+    upcomingExpirations: [],
+    dataSource: null,
     isLive: false,
   });
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const loadData = async (selectedTimeframe: TimeframeOption = timeframe, start?: string, end?: string) => {
+  const loadData = async (selectedTimeframe: TimeframeOption = timeframe, selectedScope: ScopeOption = scope, start?: string, end?: string) => {
     try {
       const res = await adminGatewayClient.getOverview({
         timeframe: selectedTimeframe,
+        scope: selectedScope,
         startDate: start,
         endDate: end
       });
-      setData(prev => ({
-        ...prev,
+      setData({
         metrics: res.metrics,
-        planDistribution: res.planDistribution || prev.planDistribution,
-        businessStatusDistribution: res.businessStatusDistribution || prev.businessStatusDistribution,
-        subscriptionDistribution: res.subscriptionDistribution || prev.subscriptionDistribution,
-        registrationGrowth: res.registrationGrowth || prev.registrationGrowth,
-        revenueTrends: res.revenueTrends || prev.revenueTrends,
-        upcomingExpirations: res.upcomingExpirations || prev.upcomingExpirations,
+        planDistribution: res.planDistribution || [],
+        businessStatusDistribution: res.businessStatusDistribution || [],
+        subscriptionDistribution: res.subscriptionDistribution || [],
+        registrationGrowth: res.registrationGrowth || [],
+        revenueTrends: res.revenueTrends || [],
+        upcomingExpirations: res.upcomingExpirations || [],
+        dataSource: res.dataSource || null,
         isLive: res.isLive
-      }));
+      });
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
+
+  useEffect(() => {
+    loadData(timeframe, scope, customStartDate, customEndDate);
+  }, [timeframe, scope]);
 
   useEffect(() => {
     loadData();
@@ -115,7 +140,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
   const handleApplyCustomRange = (e: React.FormEvent) => {
     e.preventDefault();
     if (customStartDate) {
-      loadData('custom', customStartDate, customEndDate);
+      loadData('custom', scope, customStartDate, customEndDate);
     }
   };
 
@@ -152,10 +177,24 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
         </div>
       }
     >
-      {/* TIMEFRAME FILTER BAR */}
-      <div className="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl p-3 shadow-xs mb-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+      {/* Data Source Transparency Banner */}
+      <div className="mb-4 px-3.5 py-2.5 rounded-lg bg-slate-900/80 border border-slate-800 text-xs flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="font-semibold text-emerald-400">STAGING DATA — NOT PRODUCTION CUSTOMERS</span>
+          <span className="text-slate-400 font-mono text-[11px] hidden md:inline">
+            Authoritative source: Supabase Staging (`vlbhxcajphyjkeueubud`)
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 text-[11px] font-mono text-slate-400">
+          <span>Air-Gap: <strong className="text-emerald-400 font-normal">kluxsykimnjivkqxelba untouched</strong></span>
+        </div>
+      </div>
+
+      {/* TIMEFRAME & DATA SCOPE FILTER BAR */}
+      <div className="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl p-3 shadow-xs mb-6 space-y-3">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400 flex-wrap">
             <Filter className="w-3.5 h-3.5 text-emerald-500" />
             <span>Timeframe:</span>
             <div className="flex flex-wrap items-center gap-1">
@@ -180,6 +219,41 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate }) => {
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Scope Selector */}
+          <div className="flex items-center gap-2 self-start lg:self-auto bg-slate-100 dark:bg-slate-950 p-1 rounded-lg border border-slate-200 dark:border-slate-800 text-xs">
+            <span className="text-[11px] text-slate-500 px-1 font-medium">Scope:</span>
+            <button
+              onClick={() => setScope('all')}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                scope === 'all'
+                  ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                  : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              All Records
+            </button>
+            <button
+              onClick={() => setScope('genuine')}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                scope === 'genuine'
+                  ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                  : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              Genuine Customers
+            </button>
+            <button
+              onClick={() => setScope('test')}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                scope === 'test'
+                  ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                  : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              Staging Test Fixtures
+            </button>
           </div>
 
           <div className="flex items-center gap-2 text-xs text-slate-500">

@@ -10,38 +10,50 @@ import { DataTable, Column } from '../../components/common/DataTable';
 import { StatusBadge } from '../../components/common/StatusBadge';
 import { SearchInput } from '../../components/common/SearchInput';
 import { Drawer } from '../../components/common/Drawer';
-import { mockPayments } from '../../data/mockPayments';
 import { PaymentTransaction } from '../../types';
 import { formatINR, formatINRWithDecimals, formatDateTime } from '../../utils';
 import { adminGatewayClient } from '../../services/adminGatewayClient';
 
 export const PaymentsRevenuePage: React.FC = () => {
-  const [payments, setPayments] = useState<PaymentTransaction[]>(mockPayments);
+  const [payments, setPayments] = useState<PaymentTransaction[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [scopeFilter, setScopeFilter] = useState<'all' | 'genuine' | 'test'>('all');
   const [selectedTx, setSelectedTx] = useState<PaymentTransaction | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    adminGatewayClient.getPayments().then((res) => {
-      if (res.payments && res.payments.length > 0) {
+  const fetchPayments = async () => {
+    setLoading(true);
+    try {
+      const res = await adminGatewayClient.getPayments({ scope: scopeFilter });
+      if (res.payments) {
         const mapped: PaymentTransaction[] = res.payments.map((p: any) => ({
           id: p.id,
-          transactionReference: p.gateway_payment_id || p.gateway_order_id || p.id,
+          transactionReference: p.transaction_reference || p.gateway_payment_id || p.id,
           workspaceId: p.workspace_id,
           workspaceName: p.workspaces?.company_name || 'Retail Business',
           customerEmail: p.workspaces?.owner_email || 'billing@retail.in',
           amountInr: Number(p.amount_inr || 0),
-          currency: 'INR' as const,
-          provider: 'youpi_pg' as const,
-          status: p.status === 'successful' ? ('verified_success' as const) : ('failed' as const),
-          planId: 'business',
+          currency: (p.currency || 'INR') as any,
+          provider: (p.provider || 'youpi_pg') as any,
+          status: (p.status === 'verified_success' || p.status === 'successful')
+            ? ('verified_success' as const)
+            : (p.status === 'refunded' ? ('refunded' as const) : ('failed' as const)),
+          planId: p.plan_id || 'business',
           createdAt: p.created_at,
-          verifiedAt: p.created_at,
+          verifiedAt: p.verified_at || p.created_at,
+          isTest: p.isTest ?? p.workspaces?.is_test ?? false
         }));
         setPayments(mapped);
       }
-    });
-  }, []);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPayments();
+  }, [scopeFilter]);
 
   // Reconciliation summary aggregates
   const totalCaptured = payments
@@ -88,9 +100,16 @@ export const PaymentsRevenuePage: React.FC = () => {
       header: 'Workspace',
       sortable: true,
       render: (p) => (
-        <span className="text-xs font-medium text-slate-800 dark:text-slate-200">
-          {p.workspaceName}
-        </span>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-xs font-medium text-slate-800 dark:text-slate-200">
+            {p.workspaceName}
+          </span>
+          {(p as any).isTest && (
+            <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-500 border border-amber-500/30">
+              STAGING FIXTURE
+            </span>
+          )}
+        </div>
       ),
     },
     {
@@ -160,6 +179,20 @@ export const PaymentsRevenuePage: React.FC = () => {
         </div>
       }
     >
+      {/* Data Source Transparency Banner */}
+      <div className="mb-4 px-3.5 py-2.5 rounded-lg bg-slate-900/80 border border-slate-800 text-xs flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="font-semibold text-emerald-400">STAGING DATA — NOT PRODUCTION CUSTOMERS</span>
+          <span className="text-slate-400 font-mono text-[11px] hidden md:inline">
+            Authoritative source: Supabase Staging (`vlbhxcajphyjkeueubud`)
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 text-[11px] font-mono text-slate-400">
+          <span>Air-Gap: <strong className="text-emerald-400 font-normal">kluxsykimnjivkqxelba untouched</strong></span>
+        </div>
+      </div>
+
       {/* Statutory Reconciliation Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 shadow-xs">
@@ -201,7 +234,44 @@ export const PaymentsRevenuePage: React.FC = () => {
             placeholder="Search by transaction reference or workspace..."
           />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Scope Filter */}
+          <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-0.5 rounded-lg border border-slate-200 dark:border-slate-800 text-xs">
+            <button
+              type="button"
+              onClick={() => setScopeFilter('all')}
+              className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                scopeFilter === 'all'
+                  ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                  : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              onClick={() => setScopeFilter('genuine')}
+              className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                scopeFilter === 'genuine'
+                  ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                  : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              Genuine Only
+            </button>
+            <button
+              type="button"
+              onClick={() => setScopeFilter('test')}
+              className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                scopeFilter === 'test'
+                  ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                  : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              Staging Test Fixtures
+            </button>
+          </div>
+
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}

@@ -49,3 +49,4 @@ class NetworkStatusMonitor {
 }
 
 export const networkStatus = new NetworkStatusMonitor();
+

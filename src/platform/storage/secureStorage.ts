@@ -168,3 +168,4 @@ class CrossPlatformSecureStorage implements ISecureStorage {
 }
 
 export const secureStorage = new CrossPlatformSecureStorage();
+

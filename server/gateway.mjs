@@ -114,6 +114,7 @@ function handleCors(req, res, isPrivilegedRoute = false) {
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-GCAP-Signature, X-GCAP-Timestamp, X-GCAP-Nonce, X-Youpi-Signature, X-Webhook-Signature, X-Webhook-Timestamp');
+  res.setHeader('Access-Control-Allow-Private-Network', 'true');
 }
 
 function checkRateLimit(key, maxRequests = RATE_LIMIT_MAX_REQUESTS) {
@@ -519,6 +520,7 @@ export const server = http.createServer(async (req, res) => {
   handleCors(req, res, isPrivileged);
 
   if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Private-Network', 'true');
     res.writeHead(204);
     res.end();
     return;
@@ -739,6 +741,40 @@ export const server = http.createServer(async (req, res) => {
           sessionAal
         }
       }));
+    } catch (err) {
+      sendSafeError(res, err);
+    }
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Route: List Platform Administrators (User Management Admin Tab)
+  // ---------------------------------------------------------------------------
+  if (url.pathname === '/api/v1/admins' && req.method === 'GET') {
+    try {
+      await authorizeAdmin(req, ['super_admin', 'support_agent', 'platform_auditor'], 'aal1');
+      const { data: admins, error } = await supabase
+        .from('platform_admins')
+        .select('id, email, full_name, role, is_active, mfa_enrolled, avatar_url, phone_number, created_at, updated_at')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const formatted = (admins || []).map(a => ({
+        id: a.id,
+        email: a.email,
+        fullName: a.full_name,
+        role: a.role,
+        isActive: a.is_active,
+        mfaEnrolled: a.mfa_enrolled,
+        avatarUrl: a.avatar_url || null,
+        phoneNumber: a.phone_number || null,
+        createdAt: a.created_at,
+        updatedAt: a.updated_at
+      }));
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, data: formatted }));
     } catch (err) {
       sendSafeError(res, err);
     }
@@ -1157,6 +1193,7 @@ export const server = http.createServer(async (req, res) => {
         .single();
 
       let recoveryLink = null;
+      let recoveryToken = null;
       if (adminRecord && adminRecord.is_active) {
         const { data: linkData } = await supabase.auth.admin.generateLink({
           type: 'recovery',
@@ -1166,13 +1203,36 @@ export const server = http.createServer(async (req, res) => {
           }
         });
         recoveryLink = linkData?.properties?.action_link || null;
+
+        // On staging / development, automatically exchange the recovery token hash
+        // so the administrator can immediately complete their password update on-screen
+        // without waiting for external email delivery or encountering broken redirect links.
+        if (linkData?.properties?.hashed_token && (nodeEnv === 'staging' || nodeEnv === 'development')) {
+          try {
+            const otpClient = createClient(gatewayUrl, serviceRoleKey, {
+              auth: { persistSession: false, autoRefreshToken: false }
+            });
+            const { data: sessionData } = await otpClient.auth.verifyOtp({
+              token_hash: linkData.properties.hashed_token,
+              type: 'recovery'
+            });
+            if (sessionData?.session?.access_token) {
+              recoveryToken = sessionData.session.access_token;
+            }
+          } catch (otpErr) {
+            console.warn('[Gateway] Auto-verify OTP for staging recovery token caught non-fatal error:', otpErr?.message);
+          }
+        }
       }
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         success: true,
-        message: 'If the provided email belongs to an active administrator, password reset instructions have been generated.',
-        recoveryLink: process.env.NODE_ENV === 'staging' ? recoveryLink : undefined
+        message: recoveryToken
+          ? 'Password recovery session initialized successfully. You may now enter your new password.'
+          : 'If the provided email belongs to an active administrator, password reset instructions have been generated.',
+        recoveryToken: recoveryToken || undefined,
+        recoveryLink: (nodeEnv === 'staging' || nodeEnv === 'development') ? recoveryLink : undefined
       }));
     } catch (err) {
       sendSafeError(res, err);
@@ -1474,6 +1534,7 @@ export const server = http.createServer(async (req, res) => {
       await authorizeAdmin(req, ['super_admin', 'billing_admin', 'support_agent'], 'aal1');
 
       const timeframe = url.searchParams.get('timeframe') || 'all_time';
+      const scope = url.searchParams.get('scope') || 'all'; // 'genuine' | 'test' | 'all'
       const customStart = url.searchParams.get('start_date');
       const customEnd = url.searchParams.get('end_date');
 
@@ -1496,35 +1557,49 @@ export const server = http.createServer(async (req, res) => {
         if (customEnd) endDate = new Date(customEnd + 'T23:59:59.999Z');
       }
 
-      // 1. Workspaces Metrics
-      const { data: allWs, error: wsErr } = await supabase
+      // 1. Workspaces Metrics with Synthetic/Genuine Segregation
+      const { data: rawWs, error: wsErr } = await supabase
         .from('workspaces')
-        .select('id, company_name, is_active, created_at')
+        .select('id, company_name, owner_email, is_active, is_test, created_at')
         .is('deleted_at', null);
       if (wsErr) throw wsErr;
 
-      const totalBusinesses = (allWs || []).length;
-      const activeBusinesses = (allWs || []).filter(w => w.is_active).length;
-      const suspendedBusinesses = (allWs || []).filter(w => !w.is_active).length;
+      const allWsRaw = rawWs || [];
+      const totalRegisteredAll = allWsRaw.length;
+      const testWorkspacesCount = allWsRaw.filter(w => !!w.is_test).length;
+      const genuineWorkspacesCount = allWsRaw.filter(w => !w.is_test).length;
+
+      const allWs = scope === 'genuine'
+        ? allWsRaw.filter(w => !w.is_test)
+        : scope === 'test'
+        ? allWsRaw.filter(w => !!w.is_test)
+        : allWsRaw;
+
+      const allowedWsIds = new Set(allWs.map(w => w.id));
+
+      const totalBusinesses = allWs.length;
+      const activeBusinesses = allWs.filter(w => w.is_active).length;
+      const suspendedBusinesses = allWs.filter(w => !w.is_active).length;
 
       // New registrations in timeframe
-      const newRegistrations = (allWs || []).filter(w => {
+      const newRegistrations = allWs.filter(w => {
         if (!startDate) return true;
         const c = new Date(w.created_at);
         return c >= startDate && c <= endDate;
       }).length;
 
       // 2. Profiles (Users & Employees)
-      const { data: allProfiles, error: profErr } = await supabase
+      const { data: rawProfiles, error: profErr } = await supabase
         .from('profiles')
         .select('id, workspace_id, role, status, created_at');
       if (profErr) throw profErr;
 
-      const totalUsers = (allProfiles || []).length;
-      const totalEmployees = (allProfiles || []).filter(p => p.role !== 'owner').length;
+      const allProfiles = (rawProfiles || []).filter(p => !p.workspace_id || allowedWsIds.has(p.workspace_id));
+      const totalUsers = allProfiles.length;
+      const totalEmployees = allProfiles.filter(p => p.role !== 'owner').length;
 
       // 3. Subscriptions
-      const { data: allSubs, error: subErr } = await supabase
+      const { data: rawSubs, error: subErr } = await supabase
         .from('workspace_subscriptions')
         .select(`
           id, workspace_id, plan_id, status, trial_start, trial_end, current_period_end,
@@ -1532,13 +1607,15 @@ export const server = http.createServer(async (req, res) => {
         `);
       if (subErr) throw subErr;
 
+      const allSubs = (rawSubs || []).filter(s => allowedWsIds.has(s.workspace_id));
+
       let activeSubscriptions = 0;
       let trialSubscriptions = 0;
       let expiredSubscriptions = 0;
       let mrrInr = 0;
 
       const planCounts = {};
-      (allSubs || []).forEach(s => {
+      allSubs.forEach(s => {
         const pName = s.subscription_plans?.name || (s.plan_id === 'free_trial' ? '14-Day Free Trial' : s.plan_id) || 'Free Trial';
         planCounts[pName] = (planCounts[pName] || 0) + 1;
 
@@ -1559,15 +1636,17 @@ export const server = http.createServer(async (req, res) => {
       const arrInr = mrrInr * 12;
 
       // 4. Platform SaaS Collections (payment_transactions: verified_success vs refunded)
-      const { data: txns, error: txnErr } = await supabase
+      const { data: rawTxns, error: txnErr } = await supabase
         .from('payment_transactions')
-        .select('id, amount_inr, status, created_at');
+        .select('id, workspace_id, amount_inr, status, created_at');
       if (txnErr) throw txnErr;
+
+      const txns = (rawTxns || []).filter(t => !t.workspace_id || allowedWsIds.has(t.workspace_id));
 
       let platformCollectedRevenueInr = 0;
       let totalRefundsInr = 0;
 
-      (txns || []).forEach(t => {
+      txns.forEach(t => {
         const tDate = new Date(t.created_at);
         if (startDate && (tDate < startDate || tDate > endDate)) return;
 
@@ -1582,16 +1661,18 @@ export const server = http.createServer(async (req, res) => {
       const gstComponentInr = Math.round((platformCollectedRevenueInr - netPlatformRevenueInr) * 100) / 100;
 
       // 5. Tenant Retail Invoices (GMV, Collected, Outstanding)
-      const { data: allInvoices, error: invErr } = await supabase
+      const { data: rawInvoices, error: invErr } = await supabase
         .from('invoices')
-        .select('id, grand_total, paid_amount, balance_amount, status, created_at');
+        .select('id, workspace_id, grand_total, paid_amount, balance_amount, status, created_at');
       if (invErr) throw invErr;
+
+      const allInvoices = (rawInvoices || []).filter(inv => allowedWsIds.has(inv.workspace_id));
 
       let tenantSalesGmvInr = 0;
       let tenantCollectedInr = 0;
       let outstandingAmountsInr = 0;
 
-      (allInvoices || []).forEach(inv => {
+      allInvoices.forEach(inv => {
         const invDate = new Date(inv.created_at);
         if (startDate && (invDate < startDate || invDate > endDate)) return;
 
@@ -1687,8 +1768,20 @@ export const server = http.createServer(async (req, res) => {
           },
           filters: {
             timeframe,
+            scope,
             startDate: startDate ? startDate.toISOString() : null,
             endDate: endDate ? endDate.toISOString() : null
+          },
+          dataSource: {
+            environment: nodeEnv,
+            stagingProjectRef,
+            airGapActive: true,
+            scope,
+            totalWorkspaces: totalRegisteredAll,
+            genuineWorkspaces: genuineWorkspacesCount,
+            testWorkspaces: testWorkspacesCount,
+            isSyntheticFiltered: scope === 'genuine',
+            disclaimer: nodeEnv === 'staging' ? 'STAGING DATA — NOT PRODUCTION CUSTOMERS' : 'Production Business OS'
           },
           charts: {
             registrationGrowth,
@@ -2388,6 +2481,8 @@ export const server = http.createServer(async (req, res) => {
       await authorizeAdmin(req, ['super_admin', 'support_agent'], 'aal1');
 
       const search = (url.searchParams.get('search') || '').trim();
+      const scope = url.searchParams.get('scope') || 'all'; // 'genuine' | 'test' | 'all'
+
       let query = supabase
         .from('profiles')
         .select(`
@@ -2402,7 +2497,7 @@ export const server = http.createServer(async (req, res) => {
           status,
           created_at,
           workspace_id,
-          workspaces (company_name)
+          workspaces (company_name, is_test)
         `)
         .order('created_at', { ascending: false })
         .limit(100);
@@ -2414,22 +2509,43 @@ export const server = http.createServer(async (req, res) => {
       const { data: users, error } = await query;
       if (error) throw error;
 
-      const formatted = (users || []).map(u => ({
-        id: u.id,
-        name: u.name,
-        email: u.email,
-        phone: u.phone,
-        role: u.role,
-        status: u.status,
-        department: u.department,
-        designation: u.designation,
-        businessName: u.workspaces?.company_name || 'Unassigned',
-        workspaceId: u.workspace_id,
-        createdAt: u.created_at
-      }));
+      let formatted = (users || []).map(u => {
+        const isTest = u.workspaces?.is_test || (u.email && u.email.endsWith('@staging.vistaar.internal'));
+        return {
+          id: u.id,
+          employeeId: u.employee_id,
+          name: u.name,
+          email: u.email,
+          phone: u.phone,
+          role: u.role,
+          status: u.status,
+          department: u.department,
+          designation: u.designation,
+          businessName: u.workspaces?.company_name || 'Unassigned',
+          workspaceId: u.workspace_id,
+          isTest: !!isTest,
+          createdAt: u.created_at
+        };
+      });
+
+      if (scope === 'genuine') {
+        formatted = formatted.filter(u => !u.isTest);
+      } else if (scope === 'test') {
+        formatted = formatted.filter(u => u.isTest);
+      }
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: true, data: formatted }));
+      res.end(JSON.stringify({
+        success: true,
+        data: formatted,
+        dataSource: {
+          environment: nodeEnv,
+          stagingProjectRef,
+          scope,
+          isSyntheticFiltered: scope === 'genuine',
+          disclaimer: nodeEnv === 'staging' ? 'STAGING DATA — NOT PRODUCTION CUSTOMERS' : 'Production Business OS'
+        }
+      }));
     } catch (err) {
       sendSafeError(res, err);
     }
@@ -2590,7 +2706,9 @@ export const server = http.createServer(async (req, res) => {
     try {
       await authorizeAdmin(req, ['super_admin', 'billing_admin'], 'aal1');
 
-      const { data: txns, error } = await supabase
+      const scope = url.searchParams.get('scope') || 'all'; // 'genuine' | 'test' | 'all'
+
+      const { data: rawTxns, error } = await supabase
         .from('payment_transactions')
         .select(`
           id,
@@ -2602,14 +2720,35 @@ export const server = http.createServer(async (req, res) => {
           currency,
           plan_id,
           created_at,
-          workspaces (company_name, owner_email)
+          workspaces (company_name, owner_email, is_test)
         `)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
 
+      let txns = (rawTxns || []).map(t => ({
+        ...t,
+        isTest: t.workspaces?.is_test ?? false
+      }));
+
+      if (scope === 'genuine') {
+        txns = txns.filter(t => !t.isTest);
+      } else if (scope === 'test') {
+        txns = txns.filter(t => t.isTest);
+      }
+
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: true, data: txns || [] }));
+      res.end(JSON.stringify({
+        success: true,
+        data: txns,
+        dataSource: {
+          environment: nodeEnv,
+          stagingProjectRef,
+          scope,
+          isSyntheticFiltered: scope === 'genuine',
+          disclaimer: nodeEnv === 'staging' ? 'STAGING DATA — NOT PRODUCTION CUSTOMERS' : 'Production Business OS'
+        }
+      }));
     } catch (err) {
       sendSafeError(res, err);
     }

@@ -85,3 +85,4 @@ The platform abstraction layer isolates runtime variations and presents a unifor
   4. *Finance Popover* (Payments & Coupons)
   5. *More Drawer* (Security logs, System health, Support tickets, Platform settings)
 - **Responsive Data Presentation (`DataTable.tsx`):** Converts complex wide tables on desktop into touch-friendly cards on screens `< 640px` with complete action menus.
+

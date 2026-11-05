@@ -149,3 +149,4 @@ super_admin/
 The existing Super Admin architecture is modular, hash-routed, and clean. It can be wrapped into Tauri 2 and Capacitor without altering underlying business logic or breaking the existing web application.
 
 Proceeding to **Phase 2: Platform Abstraction Layer & Responsive Mobile Navigation**.
+

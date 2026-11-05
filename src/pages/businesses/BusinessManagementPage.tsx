@@ -46,6 +46,7 @@ export const BusinessManagementPage: React.FC = () => {
 
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState('');
+  const [scopeFilter, setScopeFilter] = useState<'all' | 'genuine' | 'test'>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [planFilter, setPlanFilter] = useState<string>('all');
   const [subStatusFilter, setSubStatusFilter] = useState<string>('all');
@@ -97,6 +98,7 @@ export const BusinessManagementPage: React.FC = () => {
         page: currentPage,
         limit: pageSize,
         search: searchQuery,
+        scope: scopeFilter,
         status: statusFilter,
         plan: planFilter,
         sortBy,
@@ -113,7 +115,7 @@ export const BusinessManagementPage: React.FC = () => {
 
   useEffect(() => {
     fetchBusinesses();
-  }, [searchQuery, statusFilter, planFilter, sortBy, sortOrder, currentPage, pageSize]);
+  }, [searchQuery, scopeFilter, statusFilter, planFilter, sortBy, sortOrder, currentPage, pageSize]);
 
   // When drawer opens for a business, fetch deep-dive data
   const handleOpenDrawer = async (b: Business) => {
@@ -239,8 +241,13 @@ export const BusinessManagementPage: React.FC = () => {
       sortable: true,
       render: (b) => (
         <div>
-          <div className="font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+          <div className="font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5 flex-wrap">
             {b.legalName}
+            {b.isTest && (
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20 font-mono font-medium">
+                STAGING TEST FIXTURE
+              </span>
+            )}
           </div>
           <div className="text-[11px] text-slate-400 font-mono truncate max-w-[200px]" title={b.id}>
             {b.id}
@@ -392,6 +399,20 @@ export const BusinessManagementPage: React.FC = () => {
         </div>
       }
     >
+      {/* Data Source Transparency Banner */}
+      <div className="mb-4 px-3.5 py-2.5 rounded-lg bg-slate-900/80 border border-slate-800 text-xs flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="font-semibold text-emerald-400">STAGING DATA — NOT PRODUCTION CUSTOMERS</span>
+          <span className="text-slate-400 font-mono text-[11px] hidden md:inline">
+            Authoritative source: Supabase Staging (`vlbhxcajphyjkeueubud`)
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 text-[11px] font-mono text-slate-400">
+          <span>Air-Gap: <strong className="text-emerald-400 font-normal">kluxsykimnjivkqxelba untouched</strong></span>
+        </div>
+      </div>
+
       {/* Toast Notification */}
       {toastMessage && (
         <div
@@ -422,6 +443,43 @@ export const BusinessManagementPage: React.FC = () => {
             />
           </div>
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            {/* Scope Filter */}
+            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200 dark:border-slate-800 text-xs">
+              <button
+                type="button"
+                onClick={() => { setScopeFilter('all'); setCurrentPage(1); }}
+                className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                  scopeFilter === 'all'
+                    ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                    : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+                }`}
+              >
+                All Tenants
+              </button>
+              <button
+                type="button"
+                onClick={() => { setScopeFilter('genuine'); setCurrentPage(1); }}
+                className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                  scopeFilter === 'genuine'
+                    ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                    : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+                }`}
+              >
+                Genuine Only
+              </button>
+              <button
+                type="button"
+                onClick={() => { setScopeFilter('test'); setCurrentPage(1); }}
+                className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                  scopeFilter === 'test'
+                    ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                    : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+                }`}
+              >
+                Staging Test Fixtures
+              </button>
+            </div>
+
             {/* Status Filter */}
             <select
               value={statusFilter}

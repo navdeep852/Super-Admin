@@ -106,6 +106,13 @@ export const AdminLoginPage: React.FC = () => {
     try {
       const res = await adminGatewayClient.requestPasswordReset(forgotEmail.trim());
       setSuccessMessage(res.message);
+      if (res.recoveryToken) {
+        setRecoveryToken(res.recoveryToken);
+        setStep('reset');
+        setError(null);
+        setSuccessMessage('Recovery session verified. Please establish your new password below.');
+        return;
+      }
       if (res.recoveryLink) {
         setStagingRecoveryLink(res.recoveryLink);
       }
@@ -208,7 +215,23 @@ export const AdminLoginPage: React.FC = () => {
         {error && (
           <div className="mb-6 p-3 rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-2.5">
             <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-            <div className="flex-1 leading-relaxed">{error}</div>
+            <div className="flex-1 leading-relaxed">
+              <div>{error}</div>
+              {step === 'credentials' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setError(null);
+                    setSuccessMessage(null);
+                    setForgotEmail(email || 'navdeep@vistaarone.com');
+                    setStep('forgot');
+                  }}
+                  className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-emerald-400 hover:text-emerald-300 font-semibold underline underline-offset-2 transition-colors"
+                >
+                  Forgot or need to reset your password? Click here
+                </button>
+              )}
+            </div>
           </div>
         )}
 

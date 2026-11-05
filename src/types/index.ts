@@ -48,6 +48,7 @@ export interface Business {
   gstin?: string | null;
   city?: string;
   state?: string;
+  isTest?: boolean;
   address?: string;
   mrrContributionInr?: number;
   suspensionDetails?: {

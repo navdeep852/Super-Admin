@@ -71,3 +71,4 @@ class CrossPlatformFileExport {
 }
 
 export const fileExport = new CrossPlatformFileExport();
+

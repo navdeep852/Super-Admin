@@ -13,9 +13,6 @@ import { mockPayments } from '../data/mockPayments';
 import { secureStorage } from '../platform/storage/secureStorage';
 
 function resolveGatewayBaseUrl(): string {
-  if ((import.meta as any).env && (import.meta as any).env.VITE_GATEWAY_URL) {
-    return (import.meta as any).env.VITE_GATEWAY_URL;
-  }
   if (typeof window !== 'undefined') {
     const ua = navigator.userAgent || '';
     const cap = (window as any).Capacitor;
@@ -23,10 +20,13 @@ function resolveGatewayBaseUrl(): string {
     if (cap?.isNativePlatform?.() && /Android/i.test(ua)) {
       return 'http://10.0.2.2:3002';
     }
-    // Remote mobile testing over LAN
-    if (window.location.hostname && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-      return `http://${window.location.hostname}:3002`;
+    // Match window.location.hostname for localhost, 127.0.0.1, or LAN IP
+    if (window.location.hostname) {
+      return `${window.location.protocol}//${window.location.hostname}:3002`;
     }
+  }
+  if ((import.meta as any).env && (import.meta as any).env.VITE_GATEWAY_URL) {
+    return (import.meta as any).env.VITE_GATEWAY_URL;
   }
   return 'http://localhost:3002';
 }
@@ -203,7 +203,7 @@ class AdminGatewayClient {
   /**
    * Request password reset instructions / recovery link for an administrator.
    */
-  async requestPasswordReset(email: string): Promise<{ success: boolean; message: string; recoveryLink?: string }> {
+  async requestPasswordReset(email: string): Promise<{ success: boolean; message: string; recoveryToken?: string; recoveryLink?: string }> {
     const res = await fetch(`${GATEWAY_BASE_URL}/api/v1/auth/password/reset-request`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -329,6 +329,7 @@ class AdminGatewayClient {
 
   async getOverview(params: {
     timeframe?: string;
+    scope?: 'genuine' | 'test' | 'all';
     startDate?: string;
     endDate?: string;
   } = {}): Promise<{
@@ -339,15 +340,18 @@ class AdminGatewayClient {
     registrationGrowth?: any[];
     revenueTrends: any[];
     upcomingExpirations: any[];
+    dataSource?: any;
     isLive: boolean;
+    error?: string;
   }> {
     try {
       const q = new URLSearchParams();
       if (params.timeframe) q.set('timeframe', params.timeframe);
+      if (params.scope) q.set('scope', params.scope);
       if (params.startDate) q.set('start_date', params.startDate);
       if (params.endDate) q.set('end_date', params.endDate);
 
-      const res = await fetch(`${GATEWAY_BASE_URL}/api/v1/platform/overview?${q.toString()}`, {
+      const res = await fetch(`${resolveGatewayBaseUrl()}/api/v1/platform/overview?${q.toString()}`, {
         headers: this.getHeaders()
       });
       if (res.ok) {
@@ -356,7 +360,7 @@ class AdminGatewayClient {
           const liveMetrics = json.data.metrics;
           return {
             metrics: liveMetrics,
-            planDistribution: json.data.planDistribution?.length ? json.data.planDistribution : mockPlanDistribution,
+            planDistribution: json.data.planDistribution || [],
             businessStatusDistribution: json.data.charts?.businessStatusDistribution || [
               { name: 'Active', count: liveMetrics.activeBusinesses, color: '#10b981' },
               { name: 'Suspended', count: liveMetrics.suspendedBusinesses, color: '#f43f5e' }
@@ -367,22 +371,47 @@ class AdminGatewayClient {
               { name: 'Expired', count: liveMetrics.expiredSubscriptions, color: '#f59e0b' }
             ],
             registrationGrowth: json.data.charts?.registrationGrowth || [],
-            revenueTrends: json.data.revenueTrends?.length ? json.data.revenueTrends : mockRevenueTrends,
+            revenueTrends: json.data.revenueTrends || [],
             upcomingExpirations: json.data.upcomingExpirations || [],
+            dataSource: json.data.dataSource || null,
             isLive: true
           };
         }
       }
-    } catch (err) {
-      console.warn('[AdminGatewayClient] Gateway unreachable, falling back to cached simulation data:', err);
+    } catch (err: any) {
+      console.warn('[AdminGatewayClient] Gateway overview unreachable:', err?.message);
     }
 
+    // Zero-state rather than fabricated dummy metrics to preserve strict audit integrity
     return {
-      metrics: mockOverviewMetrics,
-      planDistribution: mockPlanDistribution,
-      revenueTrends: mockRevenueTrends,
-      upcomingExpirations: mockUpcomingExpirations,
-      isLive: false
+      metrics: {
+        totalBusinesses: 0,
+        activeBusinesses: 0,
+        suspendedBusinesses: 0,
+        totalUsers: 0,
+        totalEmployees: 0,
+        activeSubscriptions: 0,
+        trialSubscriptions: 0,
+        expiredSubscriptions: 0,
+        pendingRenewals: 0,
+        failedPaymentsCount: 0,
+        newRegistrations: 0,
+        platformCollectedRevenueInr: 0,
+        gstComponentInr: 0,
+        netPlatformRevenueInr: 0,
+        outstandingAmountsInr: 0,
+        totalRefundsInr: 0,
+        tenantSalesGmvInr: 0,
+        tenantCollectedInr: 0,
+        mrrInr: 0,
+        arrInr: 0
+      },
+      planDistribution: [],
+      revenueTrends: [],
+      upcomingExpirations: [],
+      dataSource: null,
+      isLive: false,
+      error: 'Gateway BFF unreachable on port 3002'
     };
   }
 
@@ -390,6 +419,7 @@ class AdminGatewayClient {
     page?: number;
     limit?: number;
     search?: string;
+    scope?: 'genuine' | 'test' | 'all';
     status?: string;
     plan?: string;
     sortBy?: string;
@@ -399,19 +429,22 @@ class AdminGatewayClient {
     total: number;
     page: number;
     limit: number;
+    dataSource?: any;
     isLive: boolean;
+    error?: string;
   }> {
     try {
       const query = new URLSearchParams();
       if (params.page) query.set('page', String(params.page));
       if (params.limit) query.set('limit', String(params.limit));
       if (params.search) query.set('search', params.search);
+      if (params.scope) query.set('scope', params.scope);
       if (params.status) query.set('status', params.status);
       if (params.plan) query.set('plan', params.plan);
       if (params.sortBy) query.set('sort_by', params.sortBy);
       if (params.sortOrder) query.set('sort_order', params.sortOrder);
 
-      const res = await fetch(`${GATEWAY_BASE_URL}/api/v1/workspaces?${query.toString()}`, {
+      const res = await fetch(`${resolveGatewayBaseUrl()}/api/v1/workspaces?${query.toString()}`, {
         headers: this.getHeaders()
       });
 
@@ -424,33 +457,22 @@ class AdminGatewayClient {
             total: json.data.pagination?.total ?? list.length,
             page: json.data.pagination?.page ?? 1,
             limit: json.data.pagination?.limit ?? 20,
+            dataSource: json.data.dataSource || null,
             isLive: true
           };
         }
       }
-    } catch (err) {
-      console.warn('[AdminGatewayClient] Falling back to mock businesses:', err);
-    }
-
-    let filtered = [...mockBusinesses];
-    if (params.search) {
-      const s = params.search.toLowerCase();
-      filtered = filtered.filter(b =>
-        b.legalName.toLowerCase().includes(s) ||
-        b.ownerEmail.toLowerCase().includes(s) ||
-        b.ownerName.toLowerCase().includes(s)
-      );
-    }
-    if (params.status && params.status !== 'all') {
-      filtered = filtered.filter(b => b.status.toLowerCase() === params.status?.toLowerCase());
+    } catch (err: any) {
+      console.warn('[AdminGatewayClient] Gateway workspaces unreachable:', err?.message);
     }
 
     return {
-      businesses: filtered,
-      total: filtered.length,
+      businesses: [],
+      total: 0,
       page: params.page || 1,
       limit: params.limit || 20,
-      isLive: false
+      isLive: false,
+      error: 'Gateway BFF unreachable on port 3002'
     };
   }
 
@@ -585,10 +607,16 @@ class AdminGatewayClient {
     }
   }
 
-  async getUsers(search = ''): Promise<{ users: any[]; isLive: boolean }> {
+  async getUsers(params: { search?: string; scope?: 'genuine' | 'test' | 'all' } | string = ''): Promise<{ users: any[]; isLive: boolean; error?: string }> {
     try {
-      const query = search ? `?search=${encodeURIComponent(search)}` : '';
-      const res = await fetch(`${GATEWAY_BASE_URL}/api/v1/users${query}`, {
+      const search = typeof params === 'string' ? params : (params.search || '');
+      const scope = typeof params === 'object' && params.scope ? params.scope : 'all';
+
+      const q = new URLSearchParams();
+      if (search) q.set('search', search);
+      if (scope) q.set('scope', scope);
+
+      const res = await fetch(`${resolveGatewayBaseUrl()}/api/v1/users?${q.toString()}`, {
         headers: this.getHeaders()
       });
       if (res.ok) {
@@ -597,10 +625,27 @@ class AdminGatewayClient {
           return { users: json.data, isLive: true };
         }
       }
-    } catch (err) {
-      console.warn('[AdminGatewayClient] Falling back to mock users:', err);
+    } catch (err: any) {
+      console.warn('[AdminGatewayClient] Gateway users unreachable:', err?.message);
     }
-    return { users: mockTenantUsers, isLive: false };
+    return { users: [], isLive: false, error: 'Gateway BFF unreachable' };
+  }
+
+  async getAdmins(): Promise<{ admins: any[]; isLive: boolean; error?: string }> {
+    try {
+      const res = await fetch(`${resolveGatewayBaseUrl()}/api/v1/admins`, {
+        headers: this.getHeaders()
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.data) {
+          return { admins: json.data, isLive: true };
+        }
+      }
+    } catch (err: any) {
+      console.warn('[AdminGatewayClient] Gateway admins unreachable:', err?.message);
+    }
+    return { admins: [], isLive: false, error: 'Gateway BFF unreachable' };
   }
 
   async getSubscriptions(params: {
@@ -620,7 +665,7 @@ class AdminGatewayClient {
     if (params.plan && params.plan !== 'all') q.set('plan', params.plan);
     if (params.search) q.set('search', params.search);
 
-    const res = await fetch(`${GATEWAY_BASE_URL}/api/v1/subscriptions?${q.toString()}`, {
+    const res = await fetch(`${resolveGatewayBaseUrl()}/api/v1/subscriptions?${q.toString()}`, {
       headers: this.getHeaders()
     });
 
@@ -637,9 +682,12 @@ class AdminGatewayClient {
     };
   }
 
-  async getPayments(): Promise<{ payments: any[]; isLive: boolean }> {
+  async getPayments(params: { scope?: 'genuine' | 'test' | 'all' } = {}): Promise<{ payments: any[]; isLive: boolean; error?: string }> {
     try {
-      const res = await fetch(`${GATEWAY_BASE_URL}/api/v1/payments`, {
+      const q = new URLSearchParams();
+      if (params.scope) q.set('scope', params.scope);
+
+      const res = await fetch(`${resolveGatewayBaseUrl()}/api/v1/payments?${q.toString()}`, {
         headers: this.getHeaders()
       });
       if (res.ok) {
@@ -648,10 +696,10 @@ class AdminGatewayClient {
           return { payments: json.data, isLive: true };
         }
       }
-    } catch (err) {
-      console.warn('[AdminGatewayClient] Falling back to mock payments:', err);
+    } catch (err: any) {
+      console.warn('[AdminGatewayClient] Gateway payments unreachable:', err?.message);
     }
-    return { payments: mockPayments, isLive: false };
+    return { payments: [], isLive: false, error: 'Gateway BFF unreachable' };
   }
 
   async getCoupons(): Promise<any[]> {

@@ -43,3 +43,4 @@ The Gateway BFF enforces origin verification against an authoritative allow-list
 - Staging Reference: `vlbhxcajphyjkeueubud`
 - Production Reference: `kluxsykimnjivkqxelba`
 - **Result:** No production credentials, connection strings, or migrations were accessed or executed. The production database remains 100% untouched.
+

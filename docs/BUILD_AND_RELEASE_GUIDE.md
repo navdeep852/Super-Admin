@@ -94,3 +94,4 @@ For logging into staging across all platforms:
 - **Password:** `VistaarAdmin2026!#`
 - **Role:** `super_admin`
 - **Staging Supabase Ref:** `vlbhxcajphyjkeueubud` (AWS `eu-west-1`)
+

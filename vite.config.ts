@@ -16,6 +16,9 @@ export default defineConfig({
   server: {
     port: 3001,
     host: true,
+    watch: {
+      ignored: ['**/src-tauri/**', '**/android/**', '**/ios/**'],
+    },
   },
   build: {
     target: 'esnext',

@@ -38,11 +38,12 @@ To follow the principle of least privilege, native capabilities are restricted:
 
 ## 3. Rust Compilation Verification
 
-Compilation was verified using MSVC x86_64:
+Compilation and binary packaging was verified using MSVC x86_64:
 ```powershell
-cargo check --manifest-path src-tauri/Cargo.toml
+cargo build --manifest-path src-tauri/Cargo.toml
 ```
-**Result:** `Finished dev profile [unoptimized + debuginfo] target(s) in 14m 22s` (0 warnings, 0 errors).
+**Result:** `Finished dev profile [unoptimized + debuginfo] target(s) in 14m 41s` (0 warnings, 0 errors).  
+**Generated Executable:** `src-tauri/target/debug/vistaar-super-admin.exe` (19.89 MB)
 
 ---
 
@@ -50,3 +51,4 @@ cargo check --manifest-path src-tauri/Cargo.toml
 
 - **Development Mode:** `npm run tauri:dev`
 - **Production Installer Build:** `npm run tauri:build`
+

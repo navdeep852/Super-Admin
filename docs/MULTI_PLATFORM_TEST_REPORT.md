@@ -58,7 +58,7 @@
 | Platform | Build Command | Status | Details |
 | :--- | :--- | :--- | :--- |
 | **Web** | `npm run build` | **PASSED** | Built in 2.91s, TypeScript clean (0 errors) |
-| **Windows Desktop** | `cargo check --manifest-path src-tauri/Cargo.toml` | **PASSED** | Compiled in 14m 22s, MSVC x86_64 clean |
+| **Windows Desktop (.exe)** | `cargo build --manifest-path src-tauri/Cargo.toml` | **PASSED** | Generated `vistaar-super-admin.exe` (19.89 MB in 14m 41s) |
 | **Android APK** | `cd android; .\gradlew.bat assembleDebug` | **PASSED** | Generated `app-debug.apk` (4.42 MB in 9m 59s) |
 | **iOS** | `npx cap sync ios` | **PASSED** | Assets copied, plugins configured |
 | **Gateway BFF** | `node server/gateway.mjs` | **ACTIVE** | Port 3002 operational |

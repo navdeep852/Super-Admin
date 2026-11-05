@@ -83,6 +83,8 @@ function isOriginAllowed(origin) {
   if (!origin) return false;
   const o = origin.toLowerCase().trim().replace(/\/+$/, '');
   if (ALLOWED_ORIGINS.includes(o)) return true;
+  // Allow desktop & mobile native app wrappers (Tauri & Capacitor)
+  if (o === 'tauri://localhost' || o === 'https://tauri.localhost' || o === 'capacitor://localhost') return true;
   // Allow localhost or 127.0.0.1 on any port
   if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o)) return true;
   // Allow RFC-1918 private network IPs on any port
@@ -2595,8 +2597,10 @@ export const server = http.createServer(async (req, res) => {
           workspace_id,
           amount_inr,
           status,
-          gateway_order_id,
-          gateway_payment_id,
+          transaction_reference,
+          provider,
+          currency,
+          plan_id,
           created_at,
           workspaces (company_name, owner_email)
         `)

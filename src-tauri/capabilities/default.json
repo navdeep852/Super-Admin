@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default permissions for VISTAAR Super Admin desktop",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "notification:default",
+    "dialog:default",
+    "fs:default",
+    "shell:default"
+  ]
+}

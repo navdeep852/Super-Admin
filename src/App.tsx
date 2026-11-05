@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { MockBanner } from './components/layout/MockBanner';
 import { AdminSidebar, NavigationModule } from './components/layout/AdminSidebar';
 import { AdminHeader } from './components/layout/AdminHeader';
+import { MobileNav } from './components/layout/MobileNav';
 import { PermissionDenied } from './components/common/PermissionDenied';
 import { AdminLoginPage } from './components/auth/AdminLoginPage';
 import { useAdminAuth } from './context/AdminAuthContext';
@@ -189,11 +190,17 @@ export const App: React.FC = () => {
           />
 
           {/* Active Page View */}
-          <main className="flex-1 pb-16">
+          <main className="flex-1 pb-24 lg:pb-16">
             {renderCurrentPage()}
           </main>
         </div>
       </div>
+
+      {/* Mobile Bottom Navigation & Drawer Shell */}
+      <MobileNav
+        currentModule={currentModule}
+        onSelectModule={handleSelectModule}
+      />
     </div>
   );
 };

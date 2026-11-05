@@ -19,3 +19,4 @@ ADD COLUMN IF NOT EXISTS phone_number VARCHAR(32);
 -- Comment for schema documentation
 COMMENT ON COLUMN public.platform_admins.avatar_url IS 'CDN URL or storage reference for the platform administrator profile photo';
 COMMENT ON COLUMN public.platform_admins.avatar_updated_at IS 'Timestamp when the profile photo was last uploaded or modified';
+

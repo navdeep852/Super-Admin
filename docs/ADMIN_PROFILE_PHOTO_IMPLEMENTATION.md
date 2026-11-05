@@ -196,3 +196,4 @@ ALL 12 PROFILE PHOTO & PROFILE MANAGEMENT CHECKS PASSED (12/12)
 - **Target Database:** Supabase Staging (`vlbhxcajphyjkeueubud`, AWS `eu-west-1`).
 - **Production Reference:** `kluxsykimnjivkqxelba` remained untouched and disconnected throughout the entire development, migration, and testing lifecycle.
 - **Credential Safety:** Zero service-role keys or sensitive credentials exposed to the frontend browser bundle.
+

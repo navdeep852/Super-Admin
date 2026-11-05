@@ -674,3 +674,4 @@ export const AdminProfileModal: React.FC<AdminProfileModalProps> = ({
     </Modal>
   );
 };
+

@@ -10,7 +10,28 @@ import { mockBusinesses } from '../data/mockBusinesses';
 import { mockTenantUsers } from '../data/mockUsers';
 import { mockPayments } from '../data/mockPayments';
 
-const GATEWAY_BASE_URL = ((import.meta as any).env && (import.meta as any).env.VITE_GATEWAY_URL) || 'http://localhost:3002';
+import { secureStorage } from '../platform/storage/secureStorage';
+
+function resolveGatewayBaseUrl(): string {
+  if ((import.meta as any).env && (import.meta as any).env.VITE_GATEWAY_URL) {
+    return (import.meta as any).env.VITE_GATEWAY_URL;
+  }
+  if (typeof window !== 'undefined') {
+    const ua = navigator.userAgent || '';
+    const cap = (window as any).Capacitor;
+    // Android emulator routes to host on 10.0.2.2
+    if (cap?.isNativePlatform?.() && /Android/i.test(ua)) {
+      return 'http://10.0.2.2:3002';
+    }
+    // Remote mobile testing over LAN
+    if (window.location.hostname && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      return `http://${window.location.hostname}:3002`;
+    }
+  }
+  return 'http://localhost:3002';
+}
+
+const GATEWAY_BASE_URL = resolveGatewayBaseUrl();
 const GATEWAY_ASSERTION_SECRET = ((import.meta as any).env && (import.meta as any).env.VITE_GATEWAY_ASSERTION_SECRET) || '';
 
 export interface GatewayHealthStatus {
@@ -34,14 +55,23 @@ class AdminGatewayClient {
     if (typeof window !== 'undefined' && window.localStorage) {
       this.token = window.localStorage.getItem('vistaar_admin_jwt');
     }
+    secureStorage.getItem('vistaar_admin_jwt').then(val => {
+      if (val && !this.token) {
+        this.token = val;
+      }
+    });
   }
 
   public setAuthToken(token: string | null) {
     this.token = token;
-    if (typeof window !== 'undefined' && window.localStorage) {
-      if (token) {
+    if (token) {
+      secureStorage.setItem('vistaar_admin_jwt', token).catch(() => {});
+      if (typeof window !== 'undefined' && window.localStorage) {
         window.localStorage.setItem('vistaar_admin_jwt', token);
-      } else {
+      }
+    } else {
+      secureStorage.removeItem('vistaar_admin_jwt').catch(() => {});
+      if (typeof window !== 'undefined' && window.localStorage) {
         window.localStorage.removeItem('vistaar_admin_jwt');
       }
     }
@@ -216,7 +246,6 @@ class AdminGatewayClient {
 
   /**
    * Upload and persist profile photo for authenticated administrator.
-   * Expects Data URL (data:image/png;base64,...) or raw base64.
    */
   async uploadProfilePhoto(imageBase64: string): Promise<{ success: boolean; message: string; avatarUrl: string; admin: any }> {
     const res = await fetch(`${GATEWAY_BASE_URL}/api/v1/admins/me/avatar`, {

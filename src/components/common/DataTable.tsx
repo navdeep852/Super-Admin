@@ -78,7 +78,8 @@ export function DataTable<T extends Record<string, any>>({
 
   return (
     <div className="w-full overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40 shadow-xs">
-      <div className="overflow-x-auto">
+      {/* 1. Desktop & Tablet Tabular View */}
+      <div className="hidden sm:block overflow-x-auto">
         <table className="w-full text-left border-collapse text-sm">
           <thead>
             <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/75 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 text-xs font-semibold uppercase tracking-wider">
@@ -160,6 +161,40 @@ export function DataTable<T extends Record<string, any>>({
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* 2. Mobile Responsive Card List (Under 640px) */}
+      <div className="block sm:hidden divide-y divide-slate-100 dark:divide-slate-800">
+        {paginatedData.length === 0 ? (
+          <div className="py-10 text-center text-slate-400 dark:text-slate-500 text-xs px-4">
+            {emptyMessage}
+          </div>
+        ) : (
+          paginatedData.map((item) => (
+            <div
+              key={keyExtractor(item)}
+              onClick={() => onRowClick && onRowClick(item)}
+              className={cn(
+                'p-4 space-y-2 transition-colors',
+                onRowClick ? 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 active:bg-slate-100 dark:active:bg-slate-800' : ''
+              )}
+            >
+              {columns.map((col) => {
+                const content = col.render ? col.render(item) : item[col.key];
+                return (
+                  <div key={col.key} className="flex items-start justify-between text-xs gap-3">
+                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider shrink-0 mt-0.5">
+                      {col.header}
+                    </span>
+                    <div className="text-right text-slate-800 dark:text-slate-200 min-w-0">
+                      {content}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ))
+        )}
       </div>
 
       {/* Pagination Footer */}

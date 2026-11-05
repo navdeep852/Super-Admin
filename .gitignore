@@ -39,3 +39,19 @@ Thumbs.db
 # TypeScript build info
 *.tsbuildinfo
 
+# Tauri build artifacts
+src-tauri/target/
+
+# Android build artifacts
+android/.gradle/
+android/build/
+android/app/build/
+android/app/build/outputs/
+android/.idea/
+
+# iOS build artifacts
+ios/App/build/
+ios/App/Pods/
+ios/App/Podfile.lock
+ios/App/App.xcworkspace/xcuserdata/
+

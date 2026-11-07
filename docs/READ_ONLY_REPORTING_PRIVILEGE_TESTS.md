@@ -69,3 +69,4 @@ await repClient.connect();
    `ALTER ROLE v_super_admin_reporting SET default_transaction_read_only = TRUE` forces the storage manager to reject all transaction states containing mutation WAL records.
 3. **Schema Wall:**  
    `REVOKE ALL ON SCHEMA auth` cleanly blocks access to user credentials, email confirmation tokens, and encrypted passwords.
+

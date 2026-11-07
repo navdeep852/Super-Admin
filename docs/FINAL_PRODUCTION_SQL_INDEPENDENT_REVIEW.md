@@ -650,3 +650,4 @@ COMMIT;
    The frontend user interface must mask `owner_email` and `owner_phone` on general directory tables, revealing unmasked PII only inside the authorized workspace detail drawer.
 4. **Condition 4 (Manual Owner Execution):**  
    Execution must be performed manually by the platform owner in the Supabase Production SQL Editor. The production air-gap remains active; no automated agent or deployment runner is authorized to execute this DDL.
+

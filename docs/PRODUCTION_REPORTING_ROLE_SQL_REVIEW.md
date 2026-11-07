@@ -125,3 +125,4 @@ GRANT SELECT ON public.v_report_platform_kpi_aggregates TO v_super_admin_reporti
    - Direct personal identifiers of retail customers (Aadhaar, PAN).
 3. **Cross-Tenant Isolation Invariant:**  
    While the Super Admin control plane requires aggregated oversight across workspaces, individual tenant customer records remain shielded behind aggregate metrics (e.g., total customer counts, gross balances, aggregated GMV) rather than leaking individual shopping carts or customer phone directories.
+

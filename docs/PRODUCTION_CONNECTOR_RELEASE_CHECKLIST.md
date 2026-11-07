@@ -104,3 +104,4 @@ If any latency anomaly, permission issue, or unexpected behavior occurs during c
    - Instantly severs all connections from the reporting role.
 3. **No Rollback of Customer Data Required:**
    - Because the reporting connector is 100% read-only, zero production customer data can be altered or corrupted.
+

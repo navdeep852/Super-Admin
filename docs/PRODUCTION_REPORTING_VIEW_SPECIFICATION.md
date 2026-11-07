@@ -292,3 +292,4 @@ SELECT
   COALESCE((SELECT sum(balance_amount) FROM public.invoices WHERE workspace_id IN (SELECT id FROM public.workspaces WHERE is_test = FALSE)), 0) AS total_tenant_receivables_inr,
   NOW() AS last_calculated_at;
 ```
+

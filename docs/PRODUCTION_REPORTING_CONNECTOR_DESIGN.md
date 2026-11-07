@@ -104,3 +104,4 @@ The connector exposes `getHealth()` to the Super Admin control plane:
 - **Latency Monitoring:** Measures round-trip query time in milliseconds.
 - **Uptime & Synchronization:** Returns `lastSuccessfulSyncTimestamp` and air-gap status.
 - **Transparency Banner:** Emits live metadata informing the frontend whether records originate from Staging or Production.
+

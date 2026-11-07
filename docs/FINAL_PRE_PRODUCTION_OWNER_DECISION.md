@@ -310,9 +310,9 @@ SELECT
     (SELECT count(profiles.id) FROM public.profiles WHERE profiles.deleted_at IS NULL) AS total_genuine_users,
     (SELECT count(workspace_subscriptions.id) FROM public.workspace_subscriptions WHERE workspace_subscriptions.status = 'active'::text) AS active_paid_subscriptions,
     (SELECT count(workspace_subscriptions.id) FROM public.workspace_subscriptions WHERE workspace_subscriptions.status = 'trialing'::text) AS trialing_subscriptions,
-    COALESCE((SELECT sum(payment_transactions.amount_inr) FROM public.payment_transactions WHERE payment_transactions.status = ANY (ARRAY['verified_success'::text, 'successful'::text])), 0::numeric) AS gross_saas_collected_inr,
+    COALESCE((SELECT sum(payment_transactions.amount_inr) FROM public.payment_transactions WHERE payment_transactions.status = ANY (ARRAY['verified_success'::text, 'successful'::text, 'refunded'::text])), 0::numeric) AS gross_saas_collected_inr,
     COALESCE((SELECT sum(payment_transactions.amount_inr) FROM public.payment_transactions WHERE payment_transactions.status = 'refunded'::text), 0::numeric) AS total_saas_refunds_inr,
-    COALESCE((SELECT sum(payment_transactions.amount_inr) FROM public.payment_transactions WHERE payment_transactions.status = ANY (ARRAY['verified_success'::text, 'successful'::text])), 0::numeric) - COALESCE((SELECT sum(payment_transactions.amount_inr) FROM public.payment_transactions WHERE payment_transactions.status = 'refunded'::text), 0::numeric) AS net_saas_collected_inr,
+    COALESCE((SELECT sum(payment_transactions.amount_inr) FROM public.payment_transactions WHERE payment_transactions.status = ANY (ARRAY['verified_success'::text, 'successful'::text])), 0::numeric) AS net_saas_collected_inr,
     COALESCE((SELECT sum(invoices.grand_total) FROM public.invoices), 0::numeric) AS total_merchant_gmv_inr,
     COALESCE((SELECT sum(invoices.balance_amount) FROM public.invoices), 0::numeric) AS total_tenant_receivables_inr,
     now() AS last_calculated_at;
@@ -492,9 +492,9 @@ $$\text{Net SaaS} = \text{Gross SaaS Collections} - \text{Total SaaS Refunds}$$
 
 | Metric | Amount (INR) | Reconciled Status |
 | :--- | :---: | :--- |
-| **Gross SaaS Collected** | **₹83,987.00** | Status: `verified_success` or `successful` |
-| **Total SaaS Refunds** | **₹2,400.00** | Status: `refunded` |
-| **Net SaaS Collected** | **₹81,587.00** | Calculated Net |
+| **Gross SaaS Collected** | **₹86,387.00** | All 14 captured transactions (`verified_success` + `refunded`) |
+| **Total SaaS Refunds** | **₹2,400.00** | 2 transactions with status `refunded` |
+| **Net SaaS Collected** | **₹83,987.00** | 12 retained successful transactions (`verified_success`) |
 | **Mathematical Variance** | **₹0.00** | **100% Exact Match** ($\Delta = 0.00$) |
 
 ### 5.3 GST 18% Rounding Accuracy
@@ -855,3 +855,4 @@ Restart the Super Admin Gateway service and verify that `/api/v1/health` reports
 ---
 **Audit Certification:**  
 This technical pre-production validation certifies that the proposed reporting connector provides genuine read-only reporting capabilities without violating tenant data isolation, without degrading OLTP concurrency, and without granting write or administrative privileges to external connectors.
+

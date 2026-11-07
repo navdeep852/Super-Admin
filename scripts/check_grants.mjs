@@ -23,3 +23,4 @@ await client.query(`GRANT SELECT ON super_admin_reporting.v_report_payments_coll
 console.log('Granted SELECT on v_report_payments_collections to v_super_admin_reporting.');
 
 await client.end();
+

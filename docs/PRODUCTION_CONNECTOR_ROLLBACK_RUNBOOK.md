@@ -140,3 +140,4 @@ FROM information_schema.role_table_grants
 WHERE grantee IN ('v_super_admin_reporting', 'v_reporting_view_owner');
 -- EXPECTED: 0
 ```
+

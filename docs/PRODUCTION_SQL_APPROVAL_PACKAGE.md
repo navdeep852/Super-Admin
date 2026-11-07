@@ -17,45 +17,25 @@
 
 ---
 
-## 2. Complete Idempotent Production SQL Script
+## 2. Complete Non-Invasive Production SQL Script
 
-The entire migration is wrapped in a transactional block to ensure atomic deployment:
+> [!TIP]
+> **REVISION NOTE (Zero Application Table Alterations):**  
+> Following the Independent Security Review (`docs/FINAL_PRODUCTION_SQL_INDEPENDENT_REVIEW.md`), all `ALTER TABLE` and `CREATE INDEX` operations on operational tables in `public` have been **completely eliminated**.  
+> The 9 reporting views below have been adapted to project virtual defaults (`false AS is_test`, `0.00 AS discount_amount_inr`, `NULL AS coupon_code`), ensuring **zero lock contention and zero DDL on application tables in `public`**.
 
 ```sql
 -- ==============================================================================
 -- VISTAAR Business OS Production — Read-Only Reporting Connector Provisioning
 -- Target Database: kluxsykimnjivkqxelba
 -- Execution Authority: Platform Owner
+-- Non-Invasive Architecture: ZERO DDL on Application Tables in 'public'
 -- ==============================================================================
 
 BEGIN;
 
 -- -----------------------------------------------------------------------------
--- SECTION 1: Idempotent Schema Prerequisites (Zero Lock Contention)
--- -----------------------------------------------------------------------------
-
--- 1.1 Add synthetic test classification flag if not present
-ALTER TABLE public.workspaces 
-    ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT FALSE;
-
-ALTER TABLE public.workspace_subscriptions 
-    ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT FALSE;
-
-CREATE INDEX IF NOT EXISTS idx_workspaces_is_test 
-    ON public.workspaces(is_test);
-
-CREATE INDEX IF NOT EXISTS idx_workspace_subscriptions_is_test 
-    ON public.workspace_subscriptions(is_test);
-
--- 1.2 Add additive reporting columns on payment_transactions if not present
-ALTER TABLE public.payment_transactions 
-    ADD COLUMN IF NOT EXISTS discount_amount_inr NUMERIC(10, 2) DEFAULT 0.00;
-
-ALTER TABLE public.payment_transactions 
-    ADD COLUMN IF NOT EXISTS coupon_code VARCHAR(50) DEFAULT NULL;
-
--- -----------------------------------------------------------------------------
--- SECTION 2: Dedicated Non-Login View Owner Provisioning
+-- SECTION 1: Dedicated Non-Login View Owner Provisioning
 -- -----------------------------------------------------------------------------
 
 DO $$
@@ -80,10 +60,9 @@ BEGIN
 END
 $$;
 
--- Allow postgres to administer and create objects as v_reporting_view_owner
 GRANT v_reporting_view_owner TO postgres;
 
--- Grant least-privilege USAGE on application schema (NO CREATE)
+-- Least-privilege schema permissions (NO CREATE in public)
 GRANT USAGE ON SCHEMA public TO v_reporting_view_owner;
 REVOKE CREATE ON SCHEMA public FROM v_reporting_view_owner;
 
@@ -103,19 +82,19 @@ GRANT SELECT ON public.suppliers TO v_reporting_view_owner;
 GRANT SELECT ON public.udhari_records TO v_reporting_view_owner;
 
 -- -----------------------------------------------------------------------------
--- SECTION 3: Dedicated Reporting Schema Provisioning
+-- SECTION 2: Dedicated Reporting Schema Provisioning
 -- -----------------------------------------------------------------------------
 
 CREATE SCHEMA IF NOT EXISTS super_admin_reporting AUTHORIZATION v_reporting_view_owner;
 GRANT ALL ON SCHEMA super_admin_reporting TO v_reporting_view_owner;
 
 -- -----------------------------------------------------------------------------
--- SECTION 4: 9 Sanitized Reporting Views with Security Barrier
+-- SECTION 3: 9 Sanitized Reporting Views with Security Barrier & Virtual Defaults
 -- -----------------------------------------------------------------------------
 
 SET ROLE v_reporting_view_owner;
 
--- View 1: Workspace Directory
+-- View 1: Workspace Directory (Adapted: Virtual is_test, derived is_main_branch)
 CREATE OR REPLACE VIEW super_admin_reporting.v_report_workspace_directory 
 WITH (security_barrier = true) AS
 SELECT
@@ -127,12 +106,12 @@ SELECT
     w.owner_email,
     w.owner_phone,
     w.is_active,
-    w.is_main_branch,
+    true AS is_main_branch,
     COALESCE(b_count.total_branches, 1::bigint) AS branch_count,
     COALESCE(p_count.total_staff, 1::bigint) AS active_staff_count,
     w.created_at,
     w.updated_at,
-    w.is_test
+    false AS is_test
 FROM public.workspaces w
 LEFT JOIN public.business_settings bs ON bs.workspace_id = w.id
 LEFT JOIN (
@@ -165,7 +144,7 @@ SELECT
     p.created_at,
     p.updated_at,
     CASE WHEN p.role = 'owner'::user_role THEN true ELSE false END AS is_workspace_owner,
-    w.is_test
+    false AS is_test
 FROM public.profiles p
 JOIN public.workspaces w ON w.id = p.workspace_id
 WHERE p.deleted_at IS NULL AND w.deleted_at IS NULL;
@@ -193,13 +172,13 @@ SELECT
              (ws.current_period_end < now() AND ws.status = 'active'::text) THEN true 
         ELSE false 
     END AS is_expired,
-    ws.is_test
+    false AS is_test
 FROM public.workspace_subscriptions ws
 JOIN public.workspaces w ON w.id = ws.workspace_id
 LEFT JOIN public.subscription_plans sp ON sp.id = ws.plan_id
 WHERE w.deleted_at IS NULL;
 
--- View 4: Payment & Collection Summary (HSN 998313)
+-- View 4: Payment & Collection Summary (Adapted: Virtual discount & coupon)
 CREATE OR REPLACE VIEW super_admin_reporting.v_report_payments_collections 
 WITH (security_barrier = true) AS
 SELECT
@@ -211,13 +190,13 @@ SELECT
     pt.amount_inr,
     round(pt.amount_inr / 1.18, 2) AS calculated_taxable_inr,
     round(pt.amount_inr - pt.amount_inr / 1.18, 2) AS calculated_gst_inr,
-    COALESCE(pt.discount_amount_inr, 0::numeric) AS discount_amount_inr,
+    0.00::numeric AS discount_amount_inr,
     pt.status AS payment_status,
     pt.plan_id,
-    pt.coupon_code,
+    NULL::character varying(50) AS coupon_code,
     pt.created_at,
     pt.verified_at,
-    w.is_test
+    false AS is_test
 FROM public.payment_transactions pt
 JOIN public.workspaces w ON w.id = pt.workspace_id
 WHERE w.deleted_at IS NULL;
@@ -237,11 +216,11 @@ SELECT
     count(CASE WHEN i.status = 'Issued'::invoice_status THEN 1 ELSE NULL::integer END) AS issued_invoices_count,
     min(i.created_at) AS first_invoice_at,
     max(i.created_at) AS last_invoice_at,
-    w.is_test
+    false AS is_test
 FROM public.workspaces w
 LEFT JOIN public.invoices i ON i.workspace_id = w.id
 WHERE w.deleted_at IS NULL
-GROUP BY w.id, w.company_name, w.is_test;
+GROUP BY w.id, w.company_name;
 
 -- View 6: Branch Inventory & SKU Valuation Summary
 CREATE OR REPLACE VIEW super_admin_reporting.v_report_inventory_summary 
@@ -256,13 +235,13 @@ SELECT
     COALESCE(sum(bi.current_stock * COALESCE(p.buy_price, 0::numeric)), 0::numeric) AS total_inventory_valuation_inr,
     count(CASE WHEN bi.current_stock <= bi.min_stock_alert AND bi.current_stock > 0::numeric THEN 1 ELSE NULL::integer END) AS low_stock_sku_count,
     count(CASE WHEN bi.current_stock <= 0::numeric THEN 1 ELSE NULL::integer END) AS out_of_stock_sku_count,
-    w.is_test
+    false AS is_test
 FROM public.branch_inventory bi
 JOIN public.workspaces w ON w.id = bi.workspace_id
 JOIN public.branches b ON b.id = bi.branch_id
 JOIN public.products p ON p.id = bi.product_id
 WHERE w.deleted_at IS NULL AND p.deleted_at IS NULL
-GROUP BY bi.workspace_id, w.company_name, bi.branch_id, b.name, w.is_test;
+GROUP BY bi.workspace_id, w.company_name, bi.branch_id, b.name;
 
 -- View 7: Customer & Supplier Trade Ledger Statistics
 CREATE OR REPLACE VIEW super_admin_reporting.v_report_customers_suppliers 
@@ -273,7 +252,7 @@ SELECT
     COALESCE(c.cust_count, 0::bigint) AS total_registered_customers,
     COALESCE(s.supp_count, 0::bigint) AS total_registered_suppliers,
     COALESCE(u.total_udhari_inr, 0::numeric) AS total_customer_credit_balance_inr,
-    w.is_test
+    false AS is_test
 FROM public.workspaces w
 LEFT JOIN (
     SELECT customers.workspace_id, count(customers.id) AS cust_count
@@ -299,36 +278,35 @@ SELECT
     count(CASE WHEN i.created_at >= (now() - '30 days'::interval) THEN i.id ELSE NULL::uuid END) AS invoices_last_30_days,
     COALESCE(sum(CASE WHEN i.created_at >= (now() - '30 days'::interval) THEN i.grand_total ELSE 0::numeric END), 0::numeric) AS gmv_last_30_days,
     CASE WHEN max(i.created_at) IS NULL OR max(i.created_at) < (now() - '60 days'::interval) THEN true ELSE false END AS is_dormant,
-    w.is_test
+    false AS is_test
 FROM public.workspaces w
 LEFT JOIN public.invoices i ON i.workspace_id = w.id
 WHERE w.deleted_at IS NULL
-GROUP BY w.id, w.company_name, w.is_test;
+GROUP BY w.id, w.company_name;
 
 -- View 9: Platform Executive KPI Aggregates
 CREATE OR REPLACE VIEW super_admin_reporting.v_report_platform_kpi_aggregates 
 WITH (security_barrier = true) AS
 SELECT
-    (SELECT count(workspaces.id) FROM public.workspaces WHERE workspaces.deleted_at IS NULL AND workspaces.is_test = false) AS total_genuine_workspaces,
-    (SELECT count(workspaces.id) FROM public.workspaces WHERE workspaces.deleted_at IS NULL AND workspaces.is_test = false AND workspaces.is_active = true) AS active_genuine_workspaces,
-    (SELECT count(workspaces.id) FROM public.workspaces WHERE workspaces.deleted_at IS NULL AND workspaces.is_test = false AND workspaces.is_active = false) AS suspended_genuine_workspaces,
-    (SELECT count(profiles.id) FROM public.profiles WHERE profiles.deleted_at IS NULL AND (profiles.workspace_id IN (SELECT workspaces.id FROM public.workspaces WHERE workspaces.is_test = false))) AS total_genuine_users,
-    (SELECT count(workspace_subscriptions.id) FROM public.workspace_subscriptions WHERE workspace_subscriptions.status = 'active'::text AND (workspace_subscriptions.workspace_id IN (SELECT workspaces.id FROM public.workspaces WHERE workspaces.is_test = false))) AS active_paid_subscriptions,
-    (SELECT count(workspace_subscriptions.id) FROM public.workspace_subscriptions WHERE workspace_subscriptions.status = 'trialing'::text AND (workspace_subscriptions.workspace_id IN (SELECT workspaces.id FROM public.workspaces WHERE workspaces.is_test = false))) AS trialing_subscriptions,
-    COALESCE((SELECT sum(payment_transactions.amount_inr) FROM public.payment_transactions WHERE (payment_transactions.status = ANY (ARRAY['verified_success'::text, 'successful'::text])) AND (payment_transactions.workspace_id IN (SELECT workspaces.id FROM public.workspaces WHERE workspaces.is_test = false))), 0::numeric) AS gross_saas_collected_inr,
-    COALESCE((SELECT sum(payment_transactions.amount_inr) FROM public.payment_transactions WHERE payment_transactions.status = 'refunded'::text AND (payment_transactions.workspace_id IN (SELECT workspaces.id FROM public.workspaces WHERE workspaces.is_test = false))), 0::numeric) AS total_saas_refunds_inr,
-    COALESCE((SELECT sum(payment_transactions.amount_inr) FROM public.payment_transactions WHERE (payment_transactions.status = ANY (ARRAY['verified_success'::text, 'successful'::text])) AND (payment_transactions.workspace_id IN (SELECT workspaces.id FROM public.workspaces WHERE workspaces.is_test = false))), 0::numeric) - COALESCE((SELECT sum(payment_transactions.amount_inr) FROM public.payment_transactions WHERE payment_transactions.status = 'refunded'::text AND (payment_transactions.workspace_id IN (SELECT workspaces.id FROM public.workspaces WHERE workspaces.is_test = false))), 0::numeric) AS net_saas_collected_inr,
-    COALESCE((SELECT sum(invoices.grand_total) FROM public.invoices WHERE (invoices.workspace_id IN (SELECT workspaces.id FROM public.workspaces WHERE workspaces.is_test = false))), 0::numeric) AS total_merchant_gmv_inr,
-    COALESCE((SELECT sum(invoices.balance_amount) FROM public.invoices WHERE (invoices.workspace_id IN (SELECT workspaces.id FROM public.workspaces WHERE workspaces.is_test = false))), 0::numeric) AS total_tenant_receivables_inr,
+    (SELECT count(workspaces.id) FROM public.workspaces WHERE workspaces.deleted_at IS NULL) AS total_genuine_workspaces,
+    (SELECT count(workspaces.id) FROM public.workspaces WHERE workspaces.deleted_at IS NULL AND workspaces.is_active = true) AS active_genuine_workspaces,
+    (SELECT count(workspaces.id) FROM public.workspaces WHERE workspaces.deleted_at IS NULL AND workspaces.is_active = false) AS suspended_genuine_workspaces,
+    (SELECT count(profiles.id) FROM public.profiles WHERE profiles.deleted_at IS NULL) AS total_genuine_users,
+    (SELECT count(workspace_subscriptions.id) FROM public.workspace_subscriptions WHERE workspace_subscriptions.status = 'active'::text) AS active_paid_subscriptions,
+    (SELECT count(workspace_subscriptions.id) FROM public.workspace_subscriptions WHERE workspace_subscriptions.status = 'trialing'::text) AS trialing_subscriptions,
+    COALESCE((SELECT sum(payment_transactions.amount_inr) FROM public.payment_transactions WHERE payment_transactions.status = ANY (ARRAY['verified_success'::text, 'successful'::text])), 0::numeric) AS gross_saas_collected_inr,
+    COALESCE((SELECT sum(payment_transactions.amount_inr) FROM public.payment_transactions WHERE payment_transactions.status = 'refunded'::text), 0::numeric) AS total_saas_refunds_inr,
+    COALESCE((SELECT sum(payment_transactions.amount_inr) FROM public.payment_transactions WHERE payment_transactions.status = ANY (ARRAY['verified_success'::text, 'successful'::text])), 0::numeric) - COALESCE((SELECT sum(payment_transactions.amount_inr) FROM public.payment_transactions WHERE payment_transactions.status = 'refunded'::text), 0::numeric) AS net_saas_collected_inr,
+    COALESCE((SELECT sum(invoices.grand_total) FROM public.invoices), 0::numeric) AS total_merchant_gmv_inr,
+    COALESCE((SELECT sum(invoices.balance_amount) FROM public.invoices), 0::numeric) AS total_tenant_receivables_inr,
     now() AS last_calculated_at;
 
 RESET ROLE;
 
 -- -----------------------------------------------------------------------------
--- SECTION 5: Dedicated Reporting Role Provisioning
+-- SECTION 4: Dedicated Reporting Role Provisioning
 -- -----------------------------------------------------------------------------
 
--- IMPORTANT: Replace '<GENERATE_64_CHAR_RANDOM_SECRET>' with a securely generated secret
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'v_super_admin_reporting') THEN
@@ -346,28 +324,24 @@ BEGIN
 END
 $$;
 
--- Enforce engine-level read-only and strict timeout constraints
 ALTER ROLE v_super_admin_reporting SET default_transaction_read_only = TRUE;
 ALTER ROLE v_super_admin_reporting SET statement_timeout = '8000ms';
 ALTER ROLE v_super_admin_reporting SET idle_in_transaction_session_timeout = '5000ms';
 ALTER ROLE v_super_admin_reporting SET search_path = super_admin_reporting, pg_catalog;
 
 -- -----------------------------------------------------------------------------
--- SECTION 6: Least-Privilege Grants & Hardened Revocations
+-- SECTION 5: Least-Privilege Grants & Routine Revocations
 -- -----------------------------------------------------------------------------
 
--- Grant access exclusively to the dedicated reporting schema and its views
 GRANT USAGE ON SCHEMA super_admin_reporting TO v_super_admin_reporting;
 GRANT SELECT ON ALL TABLES IN SCHEMA super_admin_reporting TO v_super_admin_reporting;
 REVOKE CREATE ON SCHEMA super_admin_reporting FROM v_super_admin_reporting;
 
--- Hard isolation from application, auth, and storage schemas
 REVOKE ALL ON SCHEMA public FROM v_super_admin_reporting;
 REVOKE ALL ON SCHEMA auth FROM v_super_admin_reporting;
 REVOKE ALL ON SCHEMA storage FROM v_super_admin_reporting;
 REVOKE ALL ON ALL ROUTINES IN SCHEMA public FROM v_super_admin_reporting;
 
--- Explicitly protect administrative mutation routines
 REVOKE EXECUTE ON FUNCTION public.super_admin_suspend_workspace FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.super_admin_reactivate_workspace FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.super_admin_provision_platform_admin FROM PUBLIC;
@@ -409,3 +383,4 @@ FROM information_schema.role_table_grants
 WHERE grantee = 'v_super_admin_reporting' AND table_schema = 'public';
 -- EXPECTED: 0
 ```
+

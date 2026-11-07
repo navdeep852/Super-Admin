@@ -134,3 +134,4 @@ We executed a suite of adversarial queries against the dedicated view owner arch
 ## 7. Conclusion
 
 The dedicated view owner `v_reporting_view_owner` successfully decouples view ownership from `postgres`, operates strictly within least-privilege parameters, cannot log in, possesses zero write permissions, has zero `CREATE` grants on application schemas, and encapsulates cross-tenant reporting with complete security barrier enforcement.
+

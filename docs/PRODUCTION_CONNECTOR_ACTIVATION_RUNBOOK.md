@@ -130,3 +130,4 @@ Monitor the following operational metrics during the first 24 hours:
 - **Query Execution Latency:** Target $\le 250\text{ ms}$; timeout occurs at $8000\text{ ms}$.
 - **HTTP 403 Rate:** Ensure no legitimate client queries are rejected.
 - **Supabase Disk I/O:** Verify reporting queries do not cause elevated read IOPS on the primary production replica.
+

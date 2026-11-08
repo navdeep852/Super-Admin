@@ -30,3 +30,4 @@ const members = await client.query(`
 console.table(members.rows);
 
 await client.end();
+

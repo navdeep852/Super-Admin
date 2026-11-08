@@ -19,3 +19,4 @@ console.log('--- enforce_platform_audit_immutability DEFINITION ---');
 console.log(res.rows[0].def);
 
 await client.end();
+

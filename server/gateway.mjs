@@ -153,6 +153,42 @@ function readBoundedBody(req, limit = MAX_BODY_SIZE) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Trusted Client IP Resolution (Reverse-Proxy Aware & Spoofing-Resistant)
+// ---------------------------------------------------------------------------
+const TRUSTED_PROXIES = new Set([
+  '127.0.0.1',
+  '::1',
+  '::ffff:127.0.0.1',
+  ...(process.env.TRUSTED_PROXY_IPS ? process.env.TRUSTED_PROXY_IPS.split(',').map(s => s.trim().replace(/^::ffff:/, '')) : [])
+]);
+
+export function getClientIp(req) {
+  const rawSocketIp = req.socket?.remoteAddress || '127.0.0.1';
+  const cleanSocketIp = rawSocketIp.replace(/^::ffff:/, '');
+
+  // Only trust forwarded headers if the immediate TCP socket connection is from a trusted proxy
+  const isTrustedProxy = TRUSTED_PROXIES.has(cleanSocketIp) || process.env.TRUST_ALL_PROXIES === 'true';
+
+  if (isTrustedProxy) {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (forwarded && typeof forwarded === 'string') {
+      const parts = forwarded.split(',').map(p => p.trim().replace(/^::ffff:/, ''));
+      // Find the first valid non-trusted IP in the chain (the real client)
+      const clientCandidate = parts.find(ip => ip && !TRUSTED_PROXIES.has(ip) && ip !== 'unknown');
+      if (clientCandidate) {
+        return clientCandidate;
+      }
+    }
+    const realIp = req.headers['x-real-ip'];
+    if (realIp && typeof realIp === 'string' && realIp.trim() !== 'unknown' && !TRUSTED_PROXIES.has(realIp.trim())) {
+      return realIp.trim().replace(/^::ffff:/, '');
+    }
+  }
+
+  return cleanSocketIp;
+}
+
 // Strictly authenticates requests via genuine Supabase Auth (zero test-token shortcuts)
 async function authenticateRequest(req) {
   const authHeader = req.headers.authorization;
@@ -560,7 +596,7 @@ export const server = http.createServer(async (req, res) => {
   // ---------------------------------------------------------------------------
   if (url.pathname === '/api/v1/auth/login' && req.method === 'POST') {
     try {
-      const clientIp = req.socket.remoteAddress || 'unknown';
+      const clientIp = getClientIp(req);
       if (!checkRateLimit(`auth_ip:${clientIp}`, 15)) {
         const err = new Error('Rate limit exceeded for authentication requests. Try again later.');
         err.statusCode = 429;
@@ -837,7 +873,7 @@ export const server = http.createServer(async (req, res) => {
           mime_type: mimeType,
           size_bytes: sizeBytes
         },
-        client_ip: req.socket.remoteAddress || '127.0.0.1'
+        client_ip: getClientIp(req)
       });
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -898,7 +934,7 @@ export const server = http.createServer(async (req, res) => {
         action: 'ADMIN_AVATAR_REMOVED',
         target_user_id: admin.id,
         details: { message: 'Profile photo removed' },
-        client_ip: req.socket.remoteAddress || '127.0.0.1'
+        client_ip: getClientIp(req)
       });
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -988,7 +1024,7 @@ export const server = http.createServer(async (req, res) => {
         action: 'ADMIN_PROFILE_UPDATED',
         target_user_id: admin.id,
         details: { updated_fields: Object.keys(updates).filter(k => k !== 'updated_at') },
-        client_ip: req.socket.remoteAddress || '127.0.0.1'
+        client_ip: getClientIp(req)
       });
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -1060,7 +1096,7 @@ export const server = http.createServer(async (req, res) => {
         action: 'PASSWORD_CHANGE',
         target_user_id: admin.id,
         details: { message: 'Administrator password changed securely via portal' },
-        client_ip: req.socket.remoteAddress || '127.0.0.1'
+        client_ip: getClientIp(req)
       });
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -1146,7 +1182,7 @@ export const server = http.createServer(async (req, res) => {
         action: 'PASSWORD_RESET',
         target_user_id: userId,
         details: { message: 'Administrator password reset successfully completed via recovery token' },
-        client_ip: req.socket.remoteAddress || '127.0.0.1'
+        client_ip: getClientIp(req)
       });
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -1165,7 +1201,7 @@ export const server = http.createServer(async (req, res) => {
   // ---------------------------------------------------------------------------
   if (url.pathname === '/api/v1/auth/password/reset-request' && req.method === 'POST') {
     try {
-      const clientIp = req.socket.remoteAddress || 'unknown';
+      const clientIp = getClientIp(req);
       if (!checkRateLimit(`reset_pwd_ip:${clientIp}`, 5)) {
         const err = new Error('Rate limit exceeded for password reset requests. Try again later.');
         err.statusCode = 429;
@@ -1277,7 +1313,7 @@ export const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/v1/admins/invite' && req.method === 'POST') {
     try {
       // 1. IP Rate Limiting (DoS Defense)
-      const clientIp = req.socket.remoteAddress || 'unknown';
+      const clientIp = getClientIp(req);
       if (!checkRateLimit(`inv_ip:${clientIp}`)) {
         const err = new Error('Rate limit exceeded for administrator invitation requests. Try again later.');
         err.statusCode = 429;
@@ -1375,7 +1411,7 @@ export const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/v1/admins/provision' && req.method === 'POST') {
     try {
       // 1. IP Rate Limiting (DoS Defense)
-      const clientIp = req.socket.remoteAddress || 'unknown';
+      const clientIp = getClientIp(req);
       if (!checkRateLimit(`prov_ip:${clientIp}`)) {
         const err = new Error('Rate limit exceeded for administrator provisioning requests. Try again later.');
         err.statusCode = 429;
@@ -2065,7 +2101,7 @@ export const server = http.createServer(async (req, res) => {
             accessed_at: new Date().toISOString(),
             fields_revealed: ['owner_email', 'owner_phone', 'employees']
           },
-          client_ip: req.socket.remoteAddress || '127.0.0.1'
+          client_ip: getClientIp(req)
         });
       } catch (auditErr) {
         console.warn('[Audit] Failed to log PII_ACCESSED event:', auditErr.message);
@@ -2281,7 +2317,7 @@ export const server = http.createServer(async (req, res) => {
     const wsId = wsSuspendMatch[1];
     try {
       // 1. IP Rate Limiting
-      const clientIp = req.socket.remoteAddress || 'unknown';
+      const clientIp = getClientIp(req);
       if (!checkRateLimit(`suspend_ip:${clientIp}`)) {
         const err = new Error('Rate limit exceeded for workspace suspension requests.');
         err.statusCode = 429;
@@ -2352,7 +2388,7 @@ export const server = http.createServer(async (req, res) => {
     const wsId = wsReactivateMatch[1];
     try {
       // 1. IP Rate Limiting
-      const clientIp = req.socket.remoteAddress || 'unknown';
+      const clientIp = getClientIp(req);
       if (!checkRateLimit(`reactivate_ip:${clientIp}`)) {
         const err = new Error('Rate limit exceeded for workspace reactivation requests.');
         err.statusCode = 429;
@@ -2439,7 +2475,7 @@ export const server = http.createServer(async (req, res) => {
 
   if (url.pathname === '/api/v1/coupons' && req.method === 'POST') {
     try {
-      const clientIp = req.socket.remoteAddress || 'unknown';
+      const clientIp = getClientIp(req);
       if (!checkRateLimit(`coupon_ip:${clientIp}`)) {
         const err = new Error('Rate limit exceeded for coupon creation.');
         err.statusCode = 429;
@@ -2798,7 +2834,7 @@ export const server = http.createServer(async (req, res) => {
   // ---------------------------------------------------------------------------
   if (url.pathname === '/api/v1/webhooks/payment' && req.method === 'POST') {
     try {
-      const clientIp = req.socket.remoteAddress || 'unknown';
+      const clientIp = getClientIp(req);
       if (!checkRateLimit(`wh_ip:${clientIp}`, 100)) {
         const err = new Error('Rate limit exceeded for inbound payment webhooks.');
         err.statusCode = 429;
@@ -3042,7 +3078,7 @@ export const server = http.createServer(async (req, res) => {
         action: `WORKSPACE_SUBSCRIPTION_${action.toUpperCase()}`,
         target_workspace_id: wsId,
         details: { action, old_plan: currentSub.plan_id, new_plan: updateData.plan_id, newPrice, reason: reasonText },
-        client_ip: req.socket.remoteAddress || '127.0.0.1'
+        client_ip: getClientIp(req)
       });
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -3167,7 +3203,7 @@ export const server = http.createServer(async (req, res) => {
         admin_role: admin.role,
         action: 'SUBSCRIPTION_PLAN_CREATED',
         details: { plan_id: planKey, name: newPlan.name, monthly: newPlan.price_monthly_inr, annual: newPlan.price_annual_inr },
-        client_ip: req.socket.remoteAddress || '127.0.0.1'
+        client_ip: getClientIp(req)
       });
 
       res.writeHead(201, { 'Content-Type': 'application/json' });
@@ -3222,7 +3258,7 @@ export const server = http.createServer(async (req, res) => {
         admin_role: admin.role,
         action: 'SUBSCRIPTION_PLAN_UPDATED',
         details: { plan_id: planId, updates: updateFields },
-        client_ip: req.socket.remoteAddress || '127.0.0.1'
+        client_ip: getClientIp(req)
       });
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -3259,7 +3295,7 @@ export const server = http.createServer(async (req, res) => {
         admin_role: admin.role,
         action: 'SUBSCRIPTION_PLAN_ARCHIVED',
         details: { plan_id: planId },
-        client_ip: req.socket.remoteAddress || '127.0.0.1'
+        client_ip: getClientIp(req)
       });
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -3396,7 +3432,7 @@ export const server = http.createServer(async (req, res) => {
         admin_role: admin.role,
         action: 'PROMOTIONAL_OFFER_CREATED',
         details: { code: newOffer.code, discount_type, discount_value },
-        client_ip: req.socket.remoteAddress || '127.0.0.1'
+        client_ip: getClientIp(req)
       });
 
       res.writeHead(201, { 'Content-Type': 'application/json' });
@@ -3437,7 +3473,7 @@ export const server = http.createServer(async (req, res) => {
         admin_role: admin.role,
         action: 'PROMOTIONAL_OFFER_TOGGLED',
         details: { offerId, code: existing.code, is_active: newStatus },
-        client_ip: req.socket.remoteAddress || '127.0.0.1'
+        client_ip: getClientIp(req)
       });
 
       res.writeHead(200, { 'Content-Type': 'application/json' });

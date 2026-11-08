@@ -1802,6 +1802,26 @@ export const server = http.createServer(async (req, res) => {
   }
 
   // ---------------------------------------------------------------------------
+  // PII Server-Side Masking Helpers
+  // ---------------------------------------------------------------------------
+  function maskEmail(email) {
+    if (!email || typeof email !== 'string') return email;
+    const parts = email.split('@');
+    if (parts.length !== 2) return '***';
+    const name = parts[0];
+    const domain = parts[1];
+    const maskedName = name.length > 2 ? `${name[0]}***${name[name.length - 1]}` : `${name[0]}***`;
+    return `${maskedName}@${domain}`;
+  }
+
+  function maskPhone(phone) {
+    if (!phone || typeof phone !== 'string') return phone;
+    const cleaned = phone.trim();
+    if (cleaned.length <= 4) return '****';
+    return `${cleaned.slice(0, 3)}*****${cleaned.slice(-2)}`;
+  }
+
+  // ---------------------------------------------------------------------------
   // Route: Searchable / Paginated Workspaces Roster
   // ---------------------------------------------------------------------------
   if (url.pathname === '/api/v1/workspaces' && req.method === 'GET') {
@@ -1924,8 +1944,8 @@ export const server = http.createServer(async (req, res) => {
           organizationId: ws.id,
           gstin: bSetting?.gstin || null,
           ownerName: ws.owner_name,
-          ownerEmail: ws.owner_email,
-          ownerPhone: ws.owner_phone,
+          ownerEmail: maskEmail(ws.owner_email),
+          ownerPhone: maskPhone(ws.owner_phone),
           address: bSetting?.address || 'Registered Office',
           city: bSetting?.city || 'City',
           state: bSetting?.state || 'State',
@@ -2012,7 +2032,7 @@ export const server = http.createServer(async (req, res) => {
   if (wsDetailMatch && req.method === 'GET') {
     const wsId = wsDetailMatch[1];
     try {
-      await authorizeAdmin(req, ['super_admin', 'billing_admin', 'support_agent'], 'aal1');
+      const { admin } = await authorizeAdmin(req, ['super_admin', 'billing_admin', 'support_agent'], 'aal1');
 
       const { data: ws, error } = await supabase
         .from('workspaces')
@@ -2031,6 +2051,24 @@ export const server = http.createServer(async (req, res) => {
         const err = new Error('Workspace not found');
         err.statusCode = 404;
         throw err;
+      }
+
+      // Audit log entry for unmasked PII detail access
+      try {
+        await supabase.from('platform_audit_logs').insert({
+          admin_id: admin?.id || null,
+          admin_email: admin?.email || 'admin',
+          admin_role: admin?.role || 'admin',
+          action: 'PII_ACCESSED',
+          target_workspace_id: wsId,
+          details: {
+            accessed_at: new Date().toISOString(),
+            fields_revealed: ['owner_email', 'owner_phone', 'employees']
+          },
+          client_ip: req.socket.remoteAddress || '127.0.0.1'
+        });
+      } catch (auditErr) {
+        console.warn('[Audit] Failed to log PII_ACCESSED event:', auditErr.message);
       }
 
       // 1. Employees (all profiles for this workspace)

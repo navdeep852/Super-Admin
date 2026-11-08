@@ -61,3 +61,4 @@ console.log('  Notice: In Formula B, refunds are deducted from verified_success,
 console.log('  Difference in Net:', (Number(totalAll.rows[0].total_all_records) - Number(refunds.rows[0].total_refunds)) - (Number(successfulOnly.rows[0].total_success) - Number(refunds.rows[0].total_refunds)));
 
 await client.end();
+

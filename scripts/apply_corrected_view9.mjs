@@ -41,3 +41,4 @@ const res = await client.query(`
 `);
 console.table(res.rows);
 await client.end();
+

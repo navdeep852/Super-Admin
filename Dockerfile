@@ -32,7 +32,7 @@ EXPOSE 3002
 
 # Health check probe against public health endpoint
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:3002/health || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:${PORT:-3002}/health || exit 1
 
 # Launch Gateway BFF under PID 1 init wrapper for graceful SIGTERM/SIGINT handling
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]

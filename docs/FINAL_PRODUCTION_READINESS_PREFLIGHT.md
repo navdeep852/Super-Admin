@@ -315,3 +315,4 @@ COMMIT;
    - [ ] Generate 64-character secret and store in secure vault.
    - [ ] Execute [`docs/PRODUCTION_SQL_APPROVAL_PACKAGE.md`](file:///d:/Project/vistaar-main/super_admin/docs/PRODUCTION_SQL_APPROVAL_PACKAGE.md) in Supabase SQL Editor.
    - [ ] Follow [`docs/PRODUCTION_CONNECTOR_ACTIVATION_RUNBOOK.md`](file:///d:/Project/vistaar-main/super_admin/docs/PRODUCTION_CONNECTOR_ACTIVATION_RUNBOOK.md) for Gateway service activation.
+

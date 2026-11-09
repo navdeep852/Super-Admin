@@ -12,10 +12,12 @@ import { createClient } from '@supabase/supabase-js';
 import { calculateSubscriptionPrice, validateOfferEligibility, toPaise, toInr } from './pricingEngine.mjs';
 
 const FORBIDDEN_PROD_REF = 'kluxsykimnjivkqxelba';
-const envPath = path.resolve('d:/Project/vistaar-main/super_admin/.env.staging');
+const envPath = process.env.ENV_FILE 
+  ? path.resolve(process.env.ENV_FILE) 
+  : (fs.existsSync(path.resolve('.env.staging')) ? path.resolve('.env.staging') : path.resolve('.env'));
 
-// 1. Load .env.staging if present
-if (fs.existsSync(envPath)) {
+// 1. Load local environment file if present and not explicitly skipped
+if (process.env.SKIP_ENV_FILE !== 'true' && fs.existsSync(envPath)) {
   const content = fs.readFileSync(envPath, 'utf8');
   content.split('\n').forEach(line => {
     const trimmed = line.trim();
@@ -24,7 +26,7 @@ if (fs.existsSync(envPath)) {
     if (eqIdx > 0) {
       const k = trimmed.slice(0, eqIdx).trim();
       const v = trimmed.slice(eqIdx + 1).trim();
-      if (!process.env[k]) {
+      if (process.env[k] === undefined) {
         process.env[k] = v;
       }
     }
@@ -35,7 +37,6 @@ if (fs.existsSync(envPath)) {
 const gatewayUrl = process.env.GATEWAY_SUPABASE_URL || '';
 const serviceRoleKey = process.env.GATEWAY_SUPABASE_SERVICE_ROLE_KEY || '';
 const assertionSecret = process.env.GATEWAY_ASSERTION_SECRET || '';
-const webhookSecret = process.env.YOUPI_WEBHOOK_SECRET || '';
 const port = parseInt(process.env.PORT || '3002', 10);
 const nodeEnv = process.env.NODE_ENV || 'staging';
 
@@ -44,15 +45,37 @@ if (gatewayUrl.includes(FORBIDDEN_PROD_REF)) {
   process.exit(1);
 }
 
-// 3. Required Variables Assertion
-const missing = [];
-if (!gatewayUrl) missing.push('GATEWAY_SUPABASE_URL');
-if (!serviceRoleKey) missing.push('GATEWAY_SUPABASE_SERVICE_ROLE_KEY');
-if (!assertionSecret) missing.push('GATEWAY_ASSERTION_SECRET');
-if (!webhookSecret) missing.push('YOUPI_WEBHOOK_SECRET');
+// -----------------------------------------------------------------------------
+// Optional Payment Gateway Webhook Integration Configuration
+// -----------------------------------------------------------------------------
+export function getYoupiWebhookConfig(env = process.env) {
+  const isEnabled = env.ENABLE_YOUPI_WEBHOOK === 'true';
+  const secret = env.YOUPI_WEBHOOK_SECRET || '';
+  return { isEnabled, secret };
+}
 
-if (missing.length > 0) {
-  console.error(`[GATEWAY ERROR] Missing required environment variables: ${missing.join(', ')}`);
+// Environment validation helper (exported for automated testing)
+export function validateEnvironment(env = process.env) {
+  const missing = [];
+  if (!env.GATEWAY_SUPABASE_URL) missing.push('GATEWAY_SUPABASE_URL');
+  if (!env.GATEWAY_SUPABASE_SERVICE_ROLE_KEY) missing.push('GATEWAY_SUPABASE_SERVICE_ROLE_KEY');
+  if (!env.GATEWAY_ASSERTION_SECRET) missing.push('GATEWAY_ASSERTION_SECRET');
+
+  // Youpi payment webhook is optional; only require secret when explicitly enabled
+  if (env.ENABLE_YOUPI_WEBHOOK === 'true' && !env.YOUPI_WEBHOOK_SECRET) {
+    missing.push('YOUPI_WEBHOOK_SECRET (required when ENABLE_YOUPI_WEBHOOK is true)');
+  }
+
+  return {
+    isValid: missing.length === 0,
+    missing
+  };
+}
+
+// 3. Required Variables Assertion
+const envCheck = validateEnvironment(process.env);
+if (!envCheck.isValid) {
+  console.error(`[GATEWAY ERROR] Missing required environment variables: ${envCheck.missing.join(', ')}`);
   process.exit(1);
 }
 
@@ -564,6 +587,7 @@ export const server = http.createServer(async (req, res) => {
 
   // Health Check Endpoints
   if ((url.pathname === '/health' || url.pathname === '/api/v1/health') && req.method === 'GET') {
+    const youpiConfig = getYoupiWebhookConfig();
     const payload = {
       status: 'operational', ok: true,
       service: 'vistaar-super-admin-gateway-bff',
@@ -571,7 +595,10 @@ export const server = http.createServer(async (req, res) => {
       stagingProjectRef: stagingProjectRef,
       gatewayPort: port,
       uptimeSeconds: Math.floor((Date.now() - startTime) / 1000),
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      integrations: {
+        youpiWebhook: youpiConfig.isEnabled ? 'enabled' : 'disabled'
+      }
     };
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(payload, null, 2));
@@ -2832,8 +2859,29 @@ export const server = http.createServer(async (req, res) => {
   // ---------------------------------------------------------------------------
   // Route: Inbound Payment Gateway Webhook (Youpi PG / Authoritative Settlement)
   // ---------------------------------------------------------------------------
-  if (url.pathname === '/api/v1/webhooks/payment' && req.method === 'POST') {
+  if (url.pathname === '/api/v1/webhooks/payment' || url.pathname === '/api/v1/webhooks/youpi') {
+    if (req.method !== 'POST') {
+      res.writeHead(405, { 'Content-Type': 'application/json', 'Allow': 'POST' });
+      res.end(JSON.stringify({
+        success: false,
+        error: 'METHOD_NOT_ALLOWED',
+        code: 'METHOD_NOT_ALLOWED',
+        message: 'Webhooks only accept POST requests'
+      }));
+      return;
+    }
+
     try {
+      const { isEnabled: isYoupiWebhookEnabled, secret: webhookSecret } = getYoupiWebhookConfig();
+
+      // 0. Fail closed immediately if Youpi webhook integration is disabled or unconfigured
+      if (!isYoupiWebhookEnabled || !webhookSecret) {
+        const err = new Error('Payment webhook integration is disabled on this server');
+        err.statusCode = 503;
+        err.code = 'WEBHOOK_INTEGRATION_DISABLED';
+        throw err;
+      }
+
       const clientIp = getClientIp(req);
       if (!checkRateLimit(`wh_ip:${clientIp}`, 100)) {
         const err = new Error('Rate limit exceeded for inbound payment webhooks.');
@@ -3584,8 +3632,9 @@ export const server = http.createServer(async (req, res) => {
 
 // Start listening if run directly
 if (process.argv[1] && process.argv[1].endsWith('gateway.mjs')) {
+  const { isEnabled: youpiEnabled } = getYoupiWebhookConfig();
   server.listen(port, '0.0.0.0', () => {
-    console.log(`[Gateway BFF] Successfully listening on port ${port} (Environment: ${nodeEnv}, Staging Ref: ${stagingProjectRef})`);
+    console.log(`[Gateway BFF] Successfully listening on port ${port} (Environment: ${nodeEnv}, Staging Ref: ${stagingProjectRef}, Youpi Webhook: ${youpiEnabled ? 'ENABLED' : 'DISABLED'})`);
   });
 }
 

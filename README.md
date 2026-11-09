@@ -75,8 +75,9 @@ The **VISTAAR Super Admin** platform is a mission-critical, enterprise SaaS cont
 - Two-phase reservation and settlement lifecycle (`validate_and_reserve_coupon`, `settle_coupon_payment`).
 - Single-use constraint per workspace with expiration validation.
 
-### 5. Webhook Ingestion & Financial Settlement
-- Ingestion endpoint `POST /api/v1/webhooks/payment` verifying HMAC signatures against `YOUPI_WEBHOOK_SECRET`.
+### 5. Optional Webhook Ingestion & Financial Settlement
+- Ingestion endpoint `POST /api/v1/webhooks/payment` (disabled by default; fails closed with HTTP 503 if integration is disabled).
+- When enabled (`ENABLE_YOUPI_WEBHOOK=true`), verifies HMAC-SHA256 signatures against `YOUPI_WEBHOOK_SECRET`.
 - Timestamp skew validation ($< 300\text{ seconds}$) preventing replay attacks.
 - Idempotent transaction settlement updating subscription state and consuming coupon reservations.
 
@@ -157,7 +158,8 @@ Configure:
 - `GATEWAY_SUPABASE_URL=https://<your-project-ref>.supabase.co`
 - `GATEWAY_SUPABASE_SERVICE_ROLE_KEY=<service-role-key>`
 - `GATEWAY_ASSERTION_SECRET=<64-char-hex-secret>`
-- `YOUPI_WEBHOOK_SECRET=<webhook-secret>`
+- `ENABLE_YOUPI_WEBHOOK=false` (Optional; set to `true` only if payment webhooks are used)
+- `YOUPI_WEBHOOK_SECRET=<webhook-secret>` (Only required if `ENABLE_YOUPI_WEBHOOK=true`)
 - `STAGING_DATABASE_URL=postgresql://postgres.<ref>:<pass>@<host>:6543/postgres`
 
 ### 3. Install Dependencies

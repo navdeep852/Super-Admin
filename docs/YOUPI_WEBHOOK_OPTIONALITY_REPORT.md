@@ -166,3 +166,4 @@ In the Railway dashboard for the Super Admin service:
    - `GATEWAY_ASSERTION_SECRET`
 2. **DO NOT** provide `YOUPI_WEBHOOK_SECRET` (it is no longer required).
 3. Deploy the service. The service will boot up cleanly, bind to `0.0.0.0:${PORT}`, and pass all `/health` checks.
+
